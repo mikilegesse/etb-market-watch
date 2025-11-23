@@ -7,71 +7,278 @@
         <meta http-equiv="refresh" content="300">
         <title>ETB Pro Terminal</title>
         <style>
+            /* --- ROOT VARIABLES --- */
+            :root {
+                --bg-primary: #030303;
+                --bg-secondary: #0a0a0a;
+                --bg-card: #000;
+                --text-primary: #00ff9d;
+                --text-secondary: #ccc;
+                --text-muted: #666;
+                --accent-pink: #ff0055;
+                --accent-blue: #00bfff;
+                --accent-yellow: #ffcc00;
+                --border-color: #333;
+                --border-hover: #00ff9d;
+                --table-hover: rgba(0, 255, 157, 0.05);
+                --shadow-color: rgba(0, 255, 157, 0.05);
+                --graph-img: url('etb_neon_terminal.png');
+            }
+
+            [data-theme="light"] {
+                --bg-primary: #f5f5f5;
+                --bg-secondary: #ffffff;
+                --bg-card: #fafafa;
+                --text-primary: #00a876;
+                --text-secondary: #333;
+                --text-muted: #888;
+                --accent-pink: #d63384;
+                --accent-blue: #0d6efd;
+                --accent-yellow: #ffc107;
+                --border-color: #ddd;
+                --border-hover: #00a876;
+                --table-hover: rgba(0, 168, 118, 0.05);
+                --shadow-color: rgba(0, 0, 0, 0.1);
+                --graph-img: url('etb_light_terminal.png');
+            }
+
             /* --- ANIMATIONS --- */
             @keyframes fadeInUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
-            @keyframes pulseGlow { 0% { text-shadow: 0 0 20px rgba(255, 0, 85, 0.5); } 50% { text-shadow: 0 0 40px rgba(255, 0, 85, 0.8), 0 0 80px rgba(255, 0, 85, 0.6); } 100% { text-shadow: 0 0 20px rgba(255, 0, 85, 0.5); } }
-            @keyframes borderPulse { 0% { border-color: #333; box-shadow: 0 0 25px rgba(0, 255, 157, 0.05); } 50% { border-color: #00ff9d; box-shadow: 0 0 35px rgba(0, 255, 157, 0.2); } 100% { border-color: #333; box-shadow: 0 0 25px rgba(0, 255, 157, 0.05); } }
+            @keyframes pulseGlow { 
+                0%, 100% { filter: drop-shadow(0 0 20px currentColor); } 
+                50% { filter: drop-shadow(0 0 40px currentColor); } 
+            }
+            @keyframes borderPulse { 
+                0%, 100% { border-color: var(--border-color); box-shadow: 0 0 25px var(--shadow-color); } 
+                50% { border-color: var(--border-hover); box-shadow: 0 0 35px var(--shadow-color); } 
+            }
+            @keyframes slide { to { background-position: 200% center; } }
 
             /* --- BASE STYLES --- */
-            body { background-color: #030303; color: #00ff9d; font-family: 'Courier New', monospace; text-align: center; padding: 20px; margin: 0; overflow-x: hidden; }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+                background-color: var(--bg-primary); 
+                color: var(--text-primary); 
+                font-family: 'Courier New', monospace; 
+                text-align: center; 
+                padding: 20px; 
+                transition: background-color 0.3s, color 0.3s; 
+            }
             .container { max-width: 1100px; margin: 0 auto; animation: fadeInUp 0.8s ease-out; }
             
-            h1 { text-shadow: 0 0 15px #00ff9d; font-size: 2.5rem; margin-bottom: 5px; letter-spacing: 2px; text-transform: uppercase; }
-            .subtext { color: #666; font-size: 0.8rem; margin-bottom: 40px; letter-spacing: 4px; }
+            /* --- HEADER --- */
+            header { position: relative; margin-bottom: 40px; }
+            h1 { 
+                text-shadow: 0 0 15px var(--text-primary); 
+                font-size: 2.5rem; 
+                margin-bottom: 5px; 
+                letter-spacing: 2px; 
+                text-transform: uppercase; 
+            }
+            .subtext { 
+                color: var(--text-muted); 
+                font-size: 0.8rem; 
+                margin-bottom: 20px; 
+                letter-spacing: 4px; 
+            }
+
+            /* --- THEME TOGGLE --- */
+            .theme-toggle {
+                position: absolute;
+                top: 0;
+                right: 0;
+                background: var(--bg-secondary);
+                border: 2px solid var(--border-color);
+                border-radius: 50px;
+                padding: 8px 20px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                transition: all 0.3s;
+                font-size: 0.9rem;
+                color: var(--text-secondary);
+            }
+            .theme-toggle:hover { 
+                border-color: var(--border-hover); 
+                box-shadow: 0 0 20px var(--shadow-color);
+            }
+            .theme-icon { font-size: 1.2rem; }
 
             /* --- TICKER CARD --- */
             .ticker-card { 
-                background: linear-gradient(145deg, #0a0a0a, #000); 
-                border: 1px solid #333; 
+                background: linear-gradient(145deg, var(--bg-secondary), var(--bg-card)); 
+                border: 1px solid var(--border-color); 
                 padding: 30px; 
                 border-radius: 15px; 
-                box-shadow: 0 0 25px rgba(0, 255, 157, 0.05);
+                box-shadow: 0 0 25px var(--shadow-color);
                 margin-bottom: 40px;
                 position: relative;
                 overflow: hidden;
                 animation: borderPulse 4s infinite, fadeInUp 1s ease-out;
             }
-            .ticker-card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: linear-gradient(90deg, #00ff9d, #ff0055, #00ff9d); animation: slide 3s linear infinite; background-size: 200% auto; }
-            @keyframes slide { to { background-position: 200% center; } }
+            .ticker-card::before { 
+                content: ''; 
+                position: absolute; 
+                top: 0; 
+                left: 0; 
+                width: 100%; 
+                height: 3px; 
+                background: linear-gradient(90deg, var(--text-primary), var(--accent-pink), var(--text-primary)); 
+                animation: slide 3s linear infinite; 
+                background-size: 200% auto; 
+            }
             
-            .price { font-size: 4.5rem; font-weight: bold; color: #fff; animation: pulseGlow 2s infinite; margin: 15px 0; }
-            .unit { font-size: 1.5rem; color: #888; font-weight: normal; }
-            .label { color: #00ff9d; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 3px; font-weight: bold; }
-            .premium { background: rgba(255, 204, 0, 0.1); color: #ffcc00; padding: 8px 20px; border-radius: 30px; font-size: 1.1rem; display: inline-block; border: 1px solid #ffcc00; text-shadow: 0 0 10px rgba(255, 204, 0, 0.5); }
+            .price { 
+                font-size: 4.5rem; 
+                font-weight: bold; 
+                color: var(--text-secondary); 
+                animation: pulseGlow 2s infinite; 
+                margin: 15px 0; 
+            }
+            .unit { font-size: 1.5rem; color: var(--text-muted); font-weight: normal; }
+            .label { 
+                color: var(--text-primary); 
+                font-size: 0.9rem; 
+                text-transform: uppercase; 
+                letter-spacing: 3px; 
+                font-weight: bold; 
+            }
+            .premium { 
+                background: rgba(255, 204, 0, 0.1); 
+                color: var(--accent-yellow); 
+                padding: 8px 20px; 
+                border-radius: 30px; 
+                font-size: 1.1rem; 
+                display: inline-block; 
+                border: 1px solid var(--accent-yellow); 
+                text-shadow: 0 0 10px rgba(255, 204, 0, 0.3); 
+            }
 
             /* --- GRAPH --- */
-            .chart-container { margin-bottom: 40px; animation: fadeInUp 1s ease-out 0.3s backwards; }
-            .chart-container img { width: 100%; border: 1px solid #222; border-radius: 15px; box-shadow: 0 0 20px rgba(0, 255, 157, 0.1); transition: all 0.3s; }
-            .chart-container img:hover { border-color: #00ff9d; box-shadow: 0 0 40px rgba(0, 255, 157, 0.3); transform: scale(1.01); }
+            .chart-container { 
+                margin-bottom: 40px; 
+                animation: fadeInUp 1s ease-out 0.3s backwards; 
+            }
+            .chart-wrapper {
+                position: relative;
+                width: 100%;
+                padding-bottom: 116.67%; /* 12:14 aspect ratio */
+                background: var(--bg-secondary);
+                border: 1px solid var(--border-color);
+                border-radius: 15px;
+                overflow: hidden;
+                box-shadow: 0 0 20px var(--shadow-color);
+                transition: all 0.3s;
+            }
+            .chart-wrapper:hover { 
+                border-color: var(--border-hover); 
+                box-shadow: 0 0 40px var(--shadow-color);
+                transform: scale(1.01);
+            }
+            .chart-wrapper img { 
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                content: var(--graph-img);
+            }
 
             /* --- DATA TABLE --- */
             .table-container { animation: fadeInUp 1s ease-out 0.6s backwards; }
-            .data-table { width: 100%; border-collapse: separate; border-spacing: 0; background: #080808; border-radius: 12px; overflow: hidden; border: 1px solid #222; }
-            .data-table th { background: #111; color: #00ff9d; padding: 15px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; border-bottom: 2px solid #333; }
-            .data-table td { padding: 15px; border-bottom: 1px solid #1a1a1a; color: #ccc; font-size: 0.95rem; transition: all 0.2s; }
-            .data-table tr:hover td { background: rgba(0, 255, 157, 0.05); color: #fff; border-bottom-color: #00ff9d; }
+            .data-table { 
+                width: 100%; 
+                border-collapse: separate; 
+                border-spacing: 0; 
+                background: var(--bg-secondary); 
+                border-radius: 12px; 
+                overflow: hidden; 
+                border: 1px solid var(--border-color); 
+            }
+            .data-table th { 
+                background: var(--bg-card); 
+                color: var(--text-primary); 
+                padding: 15px; 
+                font-size: 0.85rem; 
+                text-transform: uppercase; 
+                letter-spacing: 1px; 
+                border-bottom: 2px solid var(--border-color); 
+            }
+            .data-table td { 
+                padding: 15px; 
+                border-bottom: 1px solid var(--border-color); 
+                color: var(--text-secondary); 
+                font-size: 0.95rem; 
+                transition: all 0.2s; 
+            }
+            .data-table tr:hover td { 
+                background: var(--table-hover); 
+                color: var(--text-primary); 
+                border-bottom-color: var(--border-hover); 
+            }
             .data-table tr:last-child td { border-bottom: none; }
+            .source-name { color: var(--text-secondary) !important; }
+            .median-cell { 
+                color: var(--accent-pink) !important; 
+                font-weight: bold; 
+                font-size: 1.1em; 
+            }
+            .no-data { color: var(--text-muted) !important; }
 
             /* --- BANK RATE & FOOTER --- */
-            .bank-card { margin-top: 40px; padding-top: 20px; border-top: 1px solid #222; animation: fadeInUp 1s ease-out 0.9s backwards; }
-            .bank-rate { color: #00bfff; font-size: 1.8rem; font-weight: bold; text-shadow: 0 0 10px rgba(0, 191, 255, 0.5); margin-top: 10px; }
+            .bank-card { 
+                margin-top: 40px; 
+                padding-top: 20px; 
+                border-top: 1px solid var(--border-color); 
+                animation: fadeInUp 1s ease-out 0.9s backwards; 
+            }
+            .bank-rate { 
+                color: var(--accent-blue); 
+                font-size: 1.8rem; 
+                font-weight: bold; 
+                text-shadow: 0 0 10px var(--accent-blue); 
+                margin-top: 10px; 
+            }
             
-            footer { margin-top: 50px; color: #444; font-size: 0.75rem; letter-spacing: 1px; animation: fadeInUp 1s ease-out 1.2s backwards; }
+            footer { 
+                margin-top: 50px; 
+                color: var(--text-muted); 
+                font-size: 0.75rem; 
+                letter-spacing: 1px; 
+                animation: fadeInUp 1s ease-out 1.2s backwards; 
+            }
+
+            /* --- RESPONSIVE --- */
+            @media (max-width: 768px) {
+                h1 { font-size: 1.8rem; }
+                .price { font-size: 3rem; }
+                .theme-toggle { position: static; margin-bottom: 20px; }
+            }
         </style>
     </head>
     <body>
         <div class="container">
-            <h1>ETB MARKET INTELLIGENCE</h1>
-            <div class="subtext">/// LIVE P2P LIQUIDITY SCANNER ///</div>
+            <header>
+                <div class="theme-toggle" onclick="toggleTheme()">
+                    <span class="theme-icon">🌓</span>
+                    <span class="theme-text">Toggle Theme</span>
+                </div>
+                <h1>ETB MARKET INTELLIGENCE</h1>
+                <div class="subtext">/// LIVE P2P LIQUIDITY SCANNER ///</div>
+            </header>
 
             <div class="ticker-card">
                 <div class="label">True USD Street Rate</div>
-                <div class="price">176.36 <span class="unit">ETB</span></div>
+                <div class="price">176.35 <span class="unit">ETB</span></div>
                 <div class="premium">Black Market Premium: +15.09%</div>
             </div>
 
             <div class="chart-container">
-                <img src="etb_neon_terminal.png" alt="Market Analysis Chart">
+                <div class="chart-wrapper">
+                    <img src="etb_neon_terminal.png" alt="Market Analysis Chart" id="graphImage">
+                </div>
             </div>
 
             <div class="table-container">
@@ -90,33 +297,33 @@
                     <tbody>
                         
             <tr>
-                <td style="font-weight: bold; color: #fff;">Binance</td>
-                <td>154.34</td>
+                <td style="font-weight: bold;" class="source-name">Binance</td>
+                <td>154.33</td>
                 <td>176.35</td>
-                <td style="color: #ff0055; font-weight: bold; font-size: 1.1em;">176.36</td>
+                <td class="median-cell">176.35</td>
+                <td>176.35</td>
                 <td>176.36</td>
-                <td>176.37</td>
                 <td>108</td>
             </tr>
             
             <tr>
-                <td style="font-weight: bold; color: #fff;">Bybit</td>
+                <td style="font-weight: bold;" class="source-name">Bybit</td>
                 <td>130.09</td>
                 <td>143.98</td>
-                <td style="color: #ff0055; font-weight: bold; font-size: 1.1em;">157.03</td>
+                <td class="median-cell">157.03</td>
                 <td>168.13</td>
                 <td>169.54</td>
                 <td>44</td>
             </tr>
             
             <tr>
-                <td style="font-weight: bold; color: #fff;">MEXC</td>
+                <td style="font-weight: bold;" class="source-name">MEXC</td>
                 <td>90.03</td>
-                <td>151.05</td>
-                <td style="color: #ff0055; font-weight: bold; font-size: 1.1em;">176.06</td>
-                <td>179.68</td>
-                <td>183.69</td>
-                <td>68</td>
+                <td>167.55</td>
+                <td class="median-cell">177.15</td>
+                <td>180.05</td>
+                <td>183.30</td>
+                <td>55</td>
             </tr>
             
                     </tbody>
@@ -129,9 +336,41 @@
             </div>
 
             <footer>
-                SYSTEM UPDATE: 2025-11-23 17:20:29 UTC | SOURCE PROTOCOLS: BINANCE, BYBIT, MEXC
+                SYSTEM UPDATE: 2025-11-23 17:32:18 UTC | SOURCE PROTOCOLS: BINANCE, BYBIT, MEXC
             </footer>
         </div>
+
+        <script>
+            // Theme Toggle Logic
+            function toggleTheme() {
+                const html = document.documentElement;
+                const currentTheme = html.getAttribute('data-theme');
+                const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+                const graphImage = document.getElementById('graphImage');
+                
+                html.setAttribute('data-theme', newTheme);
+                localStorage.setItem('theme', newTheme);
+                
+                // Update graph image
+                if (newTheme === 'light') {
+                    graphImage.src = 'etb_light_terminal.png';
+                } else {
+                    graphImage.src = 'etb_neon_terminal.png';
+                }
+            }
+
+            // Load saved theme
+            window.addEventListener('DOMContentLoaded', () => {
+                const savedTheme = localStorage.getItem('theme') || 'dark';
+                const graphImage = document.getElementById('graphImage');
+                
+                document.documentElement.setAttribute('data-theme', savedTheme);
+                
+                if (savedTheme === 'light') {
+                    graphImage.src = 'etb_light_terminal.png';
+                }
+            });
+        </script>
     </body>
     </html>
     
