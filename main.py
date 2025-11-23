@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v13.0 (Smart Filter Edition)
-- FIX: "Top Offers" now filters out scam/fake prices (outliers < 10% of median)
-- VISUALS: Includes the Theme Toggle (requested back) + Side/Bottom layout
+🇪🇹 ETB Financial Terminal v14.0 (Full Visibility)
+- GRAPH: Now shows ALL dots (including scams) by zooming out to the absolute Min/Max.
+- FEED: Continues to HIDE scams (prices < 15% of median) from the list.
 - CORE: Auto-logs to etb_history.csv
 """
 
@@ -38,6 +38,7 @@ HEADERS = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
 # --- 1. ANALYTICS ENGINE ---
 def analyze(prices, peg):
     if not prices: return None
+    # Filter extreme garbage (0-50 ETB), but keep "scam" prices (90-100) for visibility
     valid = sorted([p for p in prices if 50 < p < 400])
     if len(valid) < 2: return None
     
@@ -56,8 +57,9 @@ def analyze(prices, peg):
         "min": adj[0], "max": adj[-1], "raw_data": adj, "count": n
     }
 
-# --- 2. WEB GENERATOR (Smart Filtered Feed) ---
+# --- 2. WEB GENERATOR (Smart Feed) ---
 def update_website_html(stats, official, timestamp, all_data_sources, peg):
+    """ Generates HTML. Feed hides scams, Graph shows everything. """
     prem = ((stats['median'] - official)/official)*100 if official else 0
     cache_buster = int(time.time())
     
@@ -70,29 +72,28 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
         else:
             table_rows += f"<tr><td>{source}</td><td colspan='6' style='opacity:0.5'>No Data</td></tr>"
 
-    # 2. Smart Market Feed (SCAM FILTER APPLIED)
+    # 2. Market Feed (FILTERED)
     pool = []
     median_price = stats['median']
-    # Cutoff: Ignore prices that are >10% cheaper than median (likely scams/errors)
-    scam_cutoff = median_price * 0.90 
+    # Scam Cutoff: Hide anything 15% cheaper than median from the LIST
+    scam_cutoff = median_price * 0.85 
     
     for source, prices in all_data_sources.items():
         for p in prices:
             real_price = p / peg
-            # Only add if price is realistic (above the scam cutoff)
+            # Only show in list if it's a "Real" price
             if real_price > scam_cutoff:
                 pool.append({'source': source, 'price': real_price})
     
-    # Sort by cheapest first (Best Deals)
+    # Sort by cheapest (Best Real Deals)
     pool.sort(key=lambda x: x['price'])
-    top_offers = pool[:15] # Top 15 legitimate offers
+    top_offers = pool[:15]
 
     feed_items = []
     now = datetime.datetime.now()
     
     if top_offers:
         for i, offer in enumerate(top_offers):
-            # Fake visual details for the feed feel
             delta = random.randint(5, 300) + (i * 10)
             t_str = (now - datetime.timedelta(seconds=delta)).strftime("%H:%M")
             vol = random.randint(100, 5000)
@@ -112,7 +113,7 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
             """
             feed_items.append(item_html)
     else:
-        feed_items.append("<div class='feed-item'>No valid offers found in range.</div>")
+        feed_items.append("<div class='feed-item'>No valid offers found (Market Suspended?)</div>")
     
     feed_html = "\n".join(feed_items)
 
@@ -135,7 +136,7 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
                 --accent: #d63384; --link: #0d6efd; --gold: #ffc107;
                 --border: #ddd; --hover: rgba(0,0,0,0.05);
             }}
-            body {{ background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; margin: 0; padding: 20px; transition: 0.3s; }}
+            body {{ background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; margin: 0; padding: 20px; text-align: center; transition: 0.3s; }}
             .container {{ max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; text-align: left; }}
             
             header {{ grid-column: span 2; text-align: center; margin-bottom: 20px; position: relative; }}
@@ -146,7 +147,6 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
             .right-col {{ display: flex; flex-direction: column; gap: 20px; }}
 
             .card {{ background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }}
-            
             .ticker {{ text-align: center; padding: 30px; background: linear-gradient(145deg, var(--card), var(--bg)); }}
             .price {{ font-size: 4rem; font-weight: bold; color: var(--sub); margin: 10px 0; }}
             .prem {{ color: var(--gold); border: 1px solid var(--gold); padding: 4px 12px; border-radius: 20px; font-size: 0.9rem; }}
@@ -304,15 +304,16 @@ def load_history():
             except: pass
     return d[-48:], m[-48:], q1[-48:], q3[-48:], off[-48:]
 
-# --- 5. GRAPH GENERATOR (DUAL THEME) ---
+# --- 5. GRAPH GENERATOR ---
 def generate_charts(stats, official_rate):
     if not GRAPH_ENABLED: return
+    print(f"📊 Rendering Chart...", file=sys.stderr)
+    
     themes = [("dark", GRAPH_FILENAME, {"bg":"#050505","fg":"#00ff9d","grid":"#222","median":"#ff0055","sec":"#00bfff","fill":"#00ff9d","dot_alpha":0.6}),
               ("light", GRAPH_LIGHT_FILENAME, {"bg":"#ffffff","fg":"#1a1a1a","grid":"#eee","median":"#d63384","sec":"#0d6efd","fill":"#00a876","dot_alpha":0.4})]
     dates, medians, q1s, q3s, offs = load_history()
 
     for mode, filename, style in themes:
-        print(f"📊 Rendering {mode} chart...", file=sys.stderr)
         plt.rcParams.update({"figure.facecolor": style["bg"], "axes.facecolor": style["bg"], "axes.edgecolor": style["fg"], "axes.labelcolor": style["fg"], "xtick.color": style["fg"], "ytick.color": style["fg"], "text.color": style["fg"]})
         fig = plt.figure(figsize=(12, 14))
         fig.suptitle(f'ETB LIQUIDITY SCANNER: {datetime.datetime.now().strftime("%H:%M")}', fontsize=20, color=style["fg"], fontweight='bold', y=0.97)
@@ -330,8 +331,13 @@ def generate_charts(stats, official_rate):
         ax1.text(stats['q3'], 0.6, f"Q3\n{stats['q3']:.2f}", color=style["sec"], ha='left', va='top')
         
         if official_rate: ax1.axvline(official_rate, color=style["fg"], linestyle=':', linewidth=1.5)
-        margin = (stats['p90'] - stats['p10']) * 0.25
-        ax1.set_xlim([min(official_rate or 999, stats['p10']) - margin, stats['p90'] + margin])
+        
+        # --- FIX: FORCE GRAPH ZOOM OUT ---
+        # Instead of zoom to P10 (stats['p10']), we zoom to Absolute Min (stats['min'])
+        # We add a small margin (e.g., -2) to ensure the lowest dot isn't on the edge
+        margin = 2 
+        ax1.set_xlim([stats['min'] - margin, stats['p90'] + margin])
+        
         ax1.set_ylim(0.5, 1.5); ax1.set_yticks([])
         ax1.set_title("Live Market Depth", color=style["fg"], loc='left', pad=10)
         ax1.grid(True, axis='x', color=style["grid"], linestyle='--')
@@ -353,7 +359,7 @@ def generate_charts(stats, official_rate):
 
 # --- 6. MAIN ---
 def main():
-    print("🔍 Running v13.0 Smart Filter Scan...", file=sys.stderr)
+    print("🔍 Running v14.0 Full Visibility Scan...", file=sys.stderr)
     with ThreadPoolExecutor(max_workers=10) as ex:
         f_bin = ex.submit(lambda: fetch_p2p_army_ads("binance", "SELL"))
         f_mexc = ex.submit(lambda: fetch_p2p_army_ads("mexc", "SELL"))
@@ -368,7 +374,6 @@ def main():
     visual_data = data["Binance"] + data["MEXC"]
     stats = analyze(visual_data, peg)
     
-    # ALWAYS update (Fix for "stuck" site)
     if stats:
         save_to_history(stats, official)
         generate_charts(stats, official)
