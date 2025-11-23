@@ -31,6 +31,7 @@ jobs:
         run: |
           git config --global user.name "NeonTraderBot"
           git config --global user.email "bot@github.com"
-          git add index.html etb_neon_terminal.png etb_history.csv
+          # IMPORTANT: Add both image files here
+          git add index.html etb_neon_terminal.png etb_light_terminal.png etb_history.csv
           git commit -m "Auto-update" || echo "No changes to commit"
           git push
