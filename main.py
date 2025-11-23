@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v6.0 (Cyberpunk Pro)
-- VISUALS: Fixed label overlaps in graphs.
-- ANIMATION: Added CSS animations for ticker, entrance, and table hovers.
-- CORE: Retains all previous functionality (Table, History, Auto-Log).
+🇪🇹 ETB Financial Terminal v7.0 (Day & Night Edition)
+- VISUALS: Generates TWO charts (Dark/Neon + Light/Pro)
+- FIXES: Smart label spacing prevents Q1/Q3 overlap
+- WEB: Interactive Light/Dark Mode Toggle
 """
 
 import requests
@@ -16,7 +16,6 @@ import datetime
 import random
 from concurrent.futures import ThreadPoolExecutor
 
-# Try importing matplotlib
 try:
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
@@ -24,18 +23,16 @@ try:
     GRAPH_ENABLED = True
 except ImportError:
     GRAPH_ENABLED = False
-    print("⚠️ Matplotlib not found. Graphing disabled.", file=sys.stderr)
+    print("⚠️ Matplotlib not found.", file=sys.stderr)
 
 # --- CONFIGURATION ---
 P2P_ARMY_KEY = "YJU5RCZ2-P6VTVNNA"
 HISTORY_FILE = "etb_history.csv"
-GRAPH_FILENAME = "etb_neon_terminal.png"
+IMG_DARK = "etb_neon_dark.png"
+IMG_LIGHT = "etb_clean_light.png"
 HTML_FILENAME = "index.html"
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0",
-    "Content-Type": "application/json"
-}
+HEADERS = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
 
 # --- 1. ANALYTICS ENGINE ---
 def analyze(prices, peg):
@@ -46,232 +43,279 @@ def analyze(prices, peg):
     adj = [p / peg for p in valid]
     n = len(adj)
     
-    mean_val = statistics.mean(adj)
-    median_val = statistics.median(adj)
-    try:
-        quantiles = statistics.quantiles(adj, n=100, method='inclusive')
-        p10, q1, q3, p90 = quantiles[9], quantiles[24], quantiles[74], quantiles[89]
-    except:
-        p10, q1, q3, p90 = adj[int(n*0.1)], adj[int(n*0.25)], adj[int(n*0.75)], adj[int(n*0.9)]
+    median = statistics.median(adj)
+    mean = statistics.mean(adj)
+    # Inclusive method for quartiles
+    try: q1, median_q, q3 = statistics.quantiles(adj, n=4, method='inclusive')[:3]
+    except: q1, q3 = adj[int(n*0.25)], adj[int(n*0.75)]
+    
+    # Percentiles for range
+    p10 = adj[int(n*0.1)]
+    p90 = adj[int(n*0.9)]
 
     return {
-        "median": median_val, "mean": mean_val,
-        "q1": q1, "q3": q3, "p10": p10, "p90": p90, "min": adj[0], "max": adj[-1],
+        "median": median, "mean": mean,
+        "q1": q1, "q3": q3, "p10": p10, "p90": p90, 
+        "min": adj[0], "max": adj[-1],
         "raw_data": adj, "count": n
     }
 
-# --- 2. WEB GENERATOR (Animated Cyberpunk Theme) ---
+# --- 2. DUAL-THEME CHART GENERATOR ---
+def generate_charts(stats, official_rate):
+    if not GRAPH_ENABLED: return
+    
+    themes = [
+        ("dark", IMG_DARK, {
+            "bg": "#050505", "fg": "#00ff9d", "grid": "#222", 
+            "median": "#ff0055", "fill": "#00ff9d", "dot_alpha": 0.6
+        }),
+        ("light", IMG_LIGHT, {
+            "bg": "#ffffff", "fg": "#1a1a1a", "grid": "#e0e0e0", 
+            "median": "#d32f2f", "fill": "#008000", "dot_alpha": 0.4
+        })
+    ]
+
+    dates, medians, q1s, q3s, offs = load_history()
+
+    for mode, filename, style in themes:
+        print(f"📊 Rendering {mode} chart...", file=sys.stderr)
+        
+        # Setup Style
+        plt.rcParams.update({
+            "figure.facecolor": style["bg"],
+            "axes.facecolor": style["bg"],
+            "axes.edgecolor": style["fg"],
+            "axes.labelcolor": style["fg"],
+            "xtick.color": style["fg"],
+            "ytick.color": style["fg"],
+            "text.color": style["fg"]
+        })
+        
+        fig = plt.figure(figsize=(12, 14))
+        fig.suptitle(f'ETB LIQUIDITY SCANNER: {datetime.datetime.now().strftime("%H:%M")}', 
+                     fontsize=20, color=style["fg"], fontweight='bold', y=0.97)
+
+        # --- TOP: DOT PLOT ---
+        ax1 = fig.add_subplot(2, 1, 1)
+        data = stats['raw_data']
+        y_jitter = [1 + random.uniform(-0.12, 0.12) for _ in data]
+        
+        # Dots
+        ax1.scatter(data, y_jitter, color=style["fg"], alpha=style["dot_alpha"], s=30, edgecolors='none')
+        
+        # Guidelines
+        ax1.axvline(stats['median'], color=style["median"], linewidth=3, label='Median')
+        ax1.axvline(stats['q1'], color=style["fg"], linewidth=1, linestyle='--', alpha=0.5)
+        ax1.axvline(stats['q3'], color=style["fg"], linewidth=1, linestyle='--', alpha=0.5)
+
+        # --- SMART LABELS (No Overlap Logic) ---
+        # Median: Always Top Center
+        ax1.text(stats['median'], 1.35, f"MEDIAN\n{stats['median']:.2f}", 
+                 color=style["median"], ha='center', fontweight='bold', fontsize=11)
+        
+        # Q1: Bottom Left (Pushed Left)
+        ax1.text(stats['q1'], 0.65, f"Q1 (Low)\n{stats['q1']:.2f}", 
+                 color=style["fg"], ha='right', va='top', fontsize=10)
+        
+        # Q3: Bottom Right (Pushed Right)
+        ax1.text(stats['q3'], 0.65, f"Q3 (High)\n{stats['q3']:.2f}", 
+                 color=style["fg"], ha='left', va='top', fontsize=10)
+
+        if official_rate:
+            ax1.axvline(official_rate, color=style["fg"], linestyle=':', linewidth=1.5)
+            ax1.text(official_rate, 0.65, f"Bank\n{official_rate:.0f}", color=style["fg"], ha='center', fontsize=9)
+
+        # Dynamic Zoom
+        margin = (stats['p90'] - stats['p10']) * 0.3
+        ax1.set_xlim([min(official_rate or 999, stats['p10']) - margin, stats['p90'] + margin])
+        ax1.set_ylim(0.5, 1.5)
+        ax1.set_yticks([])
+        ax1.set_title("Live Market Depth", color=style["fg"], loc='left', pad=10)
+        ax1.grid(True, axis='x', color=style["grid"], linestyle='--')
+
+        # --- BOTTOM: HISTORY ---
+        ax2 = fig.add_subplot(2, 1, 2)
+        if len(dates) > 1:
+            ax2.fill_between(dates, q1s, q3s, color=style["fill"], alpha=0.2, linewidth=0)
+            ax2.plot(dates, medians, color=style["median"], linewidth=2)
+            if any(offs): ax2.plot(dates, offs, color=style["fg"], linestyle='--', linewidth=1, alpha=0.5)
+            
+            ax2.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+            ax2.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
+            ax2.yaxis.tick_right()
+            ax2.grid(True, color=style["grid"], linewidth=0.5)
+            ax2.set_title("Historical Trend (24h)", color=style["fg"], loc='left')
+        else:
+            ax2.text(0.5, 0.5, "Building History...", ha='center', color='gray')
+
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
+        plt.savefig(filename, dpi=150, facecolor=style["bg"])
+        plt.close()
+    
+    print("✅ Both charts generated.", file=sys.stderr)
+
+# --- 3. WEB GENERATOR (Toggle Logic) ---
 def update_website_html(stats, official, timestamp, all_data_sources, peg):
-    """ Generates animated HTML with fixed-layout graph """
     prem = ((stats['median'] - official)/official)*100 if official else 0
     
-    table_rows = ""
-    for source, prices in all_data_sources.items():
+    # Data Table
+    rows = ""
+    for src, prices in all_data_sources.items():
         s = analyze(prices, peg)
         if s:
-            table_rows += f"""
-            <tr>
-                <td style="font-weight: bold; color: #fff;">{source}</td>
-                <td>{s['min']:.2f}</td>
-                <td>{s['q1']:.2f}</td>
-                <td style="color: #ff0055; font-weight: bold; font-size: 1.1em;">{s['median']:.2f}</td>
-                <td>{s['q3']:.2f}</td>
-                <td>{s['max']:.2f}</td>
-                <td>{s['count']}</td>
-            </tr>
-            """
+            rows += f"<tr><td>{src}</td><td>{s['min']:.1f}</td><td>{s['q1']:.1f}</td><td class='med'>{s['median']:.1f}</td><td>{s['q3']:.1f}</td><td>{s['max']:.1f}</td><td>{s['count']}</td></tr>"
         else:
-            table_rows += f"<tr><td>{source}</td><td colspan='6' style='color: #666;'>No Data</td></tr>"
+            rows += f"<tr><td>{src}</td><td colspan='6'>No Data</td></tr>"
 
-    html_content = f"""
+    html = f"""
     <!DOCTYPE html>
-    <html lang="en">
+    <html lang="en" data-theme="dark">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta http-equiv="refresh" content="300">
-        <title>ETB Pro Terminal</title>
+        <title>ETB Market Watch</title>
         <style>
-            /* --- ANIMATIONS --- */
-            @keyframes fadeInUp {{ from {{ opacity: 0; transform: translateY(30px); }} to {{ opacity: 1; transform: translateY(0); }} }}
-            @keyframes pulseGlow {{ 0% {{ text-shadow: 0 0 20px rgba(255, 0, 85, 0.5); }} 50% {{ text-shadow: 0 0 40px rgba(255, 0, 85, 0.8), 0 0 80px rgba(255, 0, 85, 0.6); }} 100% {{ text-shadow: 0 0 20px rgba(255, 0, 85, 0.5); }} }}
-            @keyframes borderPulse {{ 0% {{ border-color: #333; box-shadow: 0 0 25px rgba(0, 255, 157, 0.05); }} 50% {{ border-color: #00ff9d; box-shadow: 0 0 35px rgba(0, 255, 157, 0.2); }} 100% {{ border-color: #333; box-shadow: 0 0 25px rgba(0, 255, 157, 0.05); }} }}
-
-            /* --- BASE STYLES --- */
-            body {{ background-color: #030303; color: #00ff9d; font-family: 'Courier New', monospace; text-align: center; padding: 20px; margin: 0; overflow-x: hidden; }}
-            .container {{ max-width: 1100px; margin: 0 auto; animation: fadeInUp 0.8s ease-out; }}
+            :root {{ --bg: #050505; --card-bg: #111; --text: #00ff9d; --accent: #ff0055; --border: #333; --grid: #222; }}
+            [data-theme="light"] {{ --bg: #f4f4f9; --card-bg: #ffffff; --text: #1a1a1a; --accent: #d32f2f; --border: #ddd; --grid: #eee; }}
             
-            h1 {{ text-shadow: 0 0 15px #00ff9d; font-size: 2.5rem; margin-bottom: 5px; letter-spacing: 2px; text-transform: uppercase; }}
-            .subtext {{ color: #666; font-size: 0.8rem; margin-bottom: 40px; letter-spacing: 4px; }}
-
-            /* --- TICKER CARD --- */
-            .ticker-card {{ 
-                background: linear-gradient(145deg, #0a0a0a, #000); 
-                border: 1px solid #333; 
-                padding: 30px; 
-                border-radius: 15px; 
-                box-shadow: 0 0 25px rgba(0, 255, 157, 0.05);
-                margin-bottom: 40px;
-                position: relative;
-                overflow: hidden;
-                animation: borderPulse 4s infinite, fadeInUp 1s ease-out;
-            }}
-            .ticker-card::before {{ content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: linear-gradient(90deg, #00ff9d, #ff0055, #00ff9d); animation: slide 3s linear infinite; background-size: 200% auto; }}
-            @keyframes slide {{ to {{ background-position: 200% center; }} }}
+            body {{ background: var(--bg); color: var(--text); font-family: monospace; transition: 0.3s; text-align: center; margin: 0; padding: 20px; }}
+            .container {{ max-width: 1000px; margin: 0 auto; }}
             
-            .price {{ font-size: 4.5rem; font-weight: bold; color: #fff; animation: pulseGlow 2s infinite; margin: 15px 0; }}
-            .unit {{ font-size: 1.5rem; color: #888; font-weight: normal; }}
-            .label {{ color: #00ff9d; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 3px; font-weight: bold; }}
-            .premium {{ background: rgba(255, 204, 0, 0.1); color: #ffcc00; padding: 8px 20px; border-radius: 30px; font-size: 1.1rem; display: inline-block; border: 1px solid #ffcc00; text-shadow: 0 0 10px rgba(255, 204, 0, 0.5); }}
-
-            /* --- GRAPH --- */
-            .chart-container {{ margin-bottom: 40px; animation: fadeInUp 1s ease-out 0.3s backwards; }}
-            .chart-container img {{ width: 100%; border: 1px solid #222; border-radius: 15px; box-shadow: 0 0 20px rgba(0, 255, 157, 0.1); transition: all 0.3s; }}
-            .chart-container img:hover {{ border-color: #00ff9d; box-shadow: 0 0 40px rgba(0, 255, 157, 0.3); transform: scale(1.01); }}
-
-            /* --- DATA TABLE --- */
-            .table-container {{ animation: fadeInUp 1s ease-out 0.6s backwards; }}
-            .data-table {{ width: 100%; border-collapse: separate; border-spacing: 0; background: #080808; border-radius: 12px; overflow: hidden; border: 1px solid #222; }}
-            .data-table th {{ background: #111; color: #00ff9d; padding: 15px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; border-bottom: 2px solid #333; }}
-            .data-table td {{ padding: 15px; border-bottom: 1px solid #1a1a1a; color: #ccc; font-size: 0.95rem; transition: all 0.2s; }}
-            .data-table tr:hover td {{ background: rgba(0, 255, 157, 0.05); color: #fff; border-bottom-color: #00ff9d; }}
-            .data-table tr:last-child td {{ border-bottom: none; }}
-
-            /* --- BANK RATE & FOOTER --- */
-            .bank-card {{ margin-top: 40px; padding-top: 20px; border-top: 1px solid #222; animation: fadeInUp 1s ease-out 0.9s backwards; }}
-            .bank-rate {{ color: #00bfff; font-size: 1.8rem; font-weight: bold; text-shadow: 0 0 10px rgba(0, 191, 255, 0.5); margin-top: 10px; }}
+            /* Toggle Switch */
+            .toggle-btn {{ position: absolute; top: 20px; right: 20px; cursor: pointer; background: var(--card-bg); border: 1px solid var(--border); padding: 10px; border-radius: 50%; font-size: 1.2rem; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
             
-            footer {{ margin-top: 50px; color: #444; font-size: 0.75rem; letter-spacing: 1px; animation: fadeInUp 1s ease-out 1.2s backwards; }}
+            /* Cards */
+            .ticker {{ background: var(--card-bg); padding: 30px; border-radius: 15px; border: 1px solid var(--border); margin: 30px 0; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }}
+            .price {{ font-size: 4rem; font-weight: bold; color: var(--accent); margin: 10px 0; }}
+            .label {{ text-transform: uppercase; letter-spacing: 2px; font-size: 0.9rem; opacity: 0.8; }}
+            .premium {{ background: rgba(255, 204, 0, 0.15); color: #ffcc00; padding: 5px 15px; border-radius: 20px; border: 1px solid #ffcc00; display: inline-block; }}
+            
+            /* Graph */
+            #market-chart {{ width: 100%; border-radius: 15px; border: 1px solid var(--border); margin-bottom: 30px; }}
+            
+            /* Table */
+            table {{ width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 10px; overflow: hidden; margin-bottom: 30px; }}
+            th {{ background: var(--border); color: var(--text); padding: 12px; font-size: 0.8rem; text-transform: uppercase; }}
+            td {{ padding: 12px; border-bottom: 1px solid var(--border); color: var(--text); opacity: 0.9; }}
+            .med {{ font-weight: bold; color: var(--accent); }}
+            
+            footer {{ font-size: 0.8rem; opacity: 0.6; border-top: 1px solid var(--border); padding-top: 20px; }}
         </style>
     </head>
     <body>
+        <button class="toggle-btn" onclick="toggleTheme()">🌗</button>
+        
         <div class="container">
-            <h1>ETB MARKET INTELLIGENCE</h1>
-            <div class="subtext">/// LIVE P2P LIQUIDITY SCANNER ///</div>
-
-            <div class="ticker-card">
-                <div class="label">True USD Street Rate</div>
-                <div class="price">{stats['median']:.2f} <span class="unit">ETB</span></div>
+            <div class="label">LIVE ETB/USD P2P RATE</div>
+            
+            <div class="ticker">
+                <div class="label">True USD Median</div>
+                <div class="price">{stats['median']:.2f} ETB</div>
                 <div class="premium">Black Market Premium: +{prem:.2f}%</div>
             </div>
 
-            <div class="chart-container">
-                <img src="{GRAPH_FILENAME}" alt="Market Analysis Chart">
-            </div>
+            <img id="market-chart" src="{IMG_DARK}" alt="Chart">
 
-            <div class="table-container">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Source</th>
-                            <th>Min</th>
-                            <th>Q1 (Low)</th>
-                            <th>Median</th>
-                            <th>Q3 (High)</th>
-                            <th>Max</th>
-                            <th>Ads</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {table_rows}
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="bank-card">
-                <div class="label">Official Bank Rate (Ref)</div>
-                <div class="bank-rate">{official:.2f} ETB</div>
-            </div>
+            <table>
+                <thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Median</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead>
+                <tbody>{rows}</tbody>
+            </table>
 
             <footer>
-                SYSTEM UPDATE: {timestamp} UTC | SOURCE PROTOCOLS: BINANCE, BYBIT, MEXC
+                OFFICIAL BANK RATE: {official:.2f} ETB <br>
+                LAST UPDATE: {timestamp} UTC
             </footer>
         </div>
+
+        <script>
+            const imgDark = "{IMG_DARK}";
+            const imgLight = "{IMG_LIGHT}";
+            const chart = document.getElementById('market-chart');
+            const html = document.documentElement;
+
+            // Load saved theme
+            if (localStorage.getItem('theme') === 'light') {{
+                html.setAttribute('data-theme', 'light');
+                chart.src = imgLight;
+            }}
+
+            function toggleTheme() {{
+                const current = html.getAttribute('data-theme');
+                const newTheme = current === 'dark' ? 'light' : 'dark';
+                
+                html.setAttribute('data-theme', newTheme);
+                chart.src = newTheme === 'dark' ? imgDark : imgLight;
+                localStorage.setItem('theme', newTheme);
+            }}
+        </script>
     </body>
     </html>
     """
-    
-    with open(HTML_FILENAME, "w") as f:
-        f.write(html_content)
-    print(f"✅ Website ({HTML_FILENAME}) generated locally.")
+    with open(HTML_FILENAME, "w") as f: f.write(html)
+    print("✅ Website generated.")
 
-# --- 3. FETCHERS ---
+# --- 4. FETCHERS & HISTORY ---
 def fetch_official_rate():
-    try:
-        r = requests.get("https://open.er-api.com/v6/latest/USD", timeout=5)
-        return float(r.json().get("rates", {}).get("ETB"))
+    try: return float(requests.get("https://open.er-api.com/v6/latest/USD", timeout=5).json()["rates"]["ETB"])
     except: return None
 
 def fetch_usdt_peg():
-    try:
-        url = "https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd"
-        r = requests.get(url, timeout=5)
-        return float(r.json().get("tether", {}).get("usd", 1.0))
+    try: return float(requests.get("https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd", timeout=5).json()["tether"]["usd"])
     except: return 1.00
 
-def fetch_binance(trade_type):
-    url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+def fetch_data_source(url_func):
     prices = []
-    page = 1
-    while True:
-        try:
-            payload = {"asset": "USDT", "fiat": "ETB", "merchantCheck": False, "page": page, "rows": 20, "tradeType": trade_type}
-            r = requests.post(url, headers=HEADERS, json=payload, timeout=5)
-            ads = r.json().get('data', [])
-            if not ads: break
-            prices.extend([float(ad['adv']['price']) for ad in ads if ad.get('adv', {}).get('price')])
-            if page >= 5: break
-            page += 1
-            time.sleep(0.1)
-        except: break
-    return prices
-
-def fetch_bybit(side_id):
-    url = "https://api2.bybit.com/fiat/otc/item/online"
-    prices = []
-    page = 1
-    h = HEADERS.copy(); h["Referer"] = "https://www.bybit.com/"
-    while True:
-        try:
-            payload = {"userId": "", "tokenId": "USDT", "currencyId": "ETB", "payment": [], "side": side_id, "size": "20", "page": str(page), "authMaker": False}
-            r = requests.post(url, headers=h, json=payload, timeout=5)
-            items = r.json().get("result", {}).get("items", [])
-            if not items: break
-            prices.extend([float(item.get('price')) for item in items if item.get('price')])
-            if page >= 5: break
-            page += 1
-            time.sleep(0.1)
-        except: break
-    return prices
-
-def fetch_p2p_army_ads(market, side):
-    url = "https://p2p.army/v1/api/get_p2p_order_book"
-    prices = []
-    h = HEADERS.copy(); h["X-APIKEY"] = P2P_ARMY_KEY
-    try:
-        payload = {"market": market, "fiat": "ETB", "asset": "USDT", "side": side, "limit": 100}
-        r = requests.post(url, headers=h, json=payload, timeout=10)
-        data = r.json()
-        candidates = data.get("result", data.get("data", data.get("ads", [])))
-        if not candidates and isinstance(data, list): candidates = data
-        if candidates:
-            for ad in candidates:
-                if isinstance(ad, dict) and 'price' in ad: prices.append(float(ad['price']))
+    try: prices = url_func()
     except: pass
     return prices
 
-# --- 4. HISTORY ---
+def fetch_binance(trade_type):
+    url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+    prices, page = [], 1
+    while True:
+        try:
+            r = requests.post(url, headers=HEADERS, json={"asset":"USDT","fiat":"ETB","merchantCheck":False,"page":page,"rows":20,"tradeType":trade_type}, timeout=5)
+            ads = r.json().get('data', [])
+            if not ads: break
+            prices.extend([float(ad['adv']['price']) for ad in ads])
+            if page >= 5: break
+            page += 1; time.sleep(0.1)
+        except: break
+    return prices
+
+def fetch_bybit(side):
+    url = "https://api2.bybit.com/fiat/otc/item/online"
+    prices, page = [], 1
+    h = HEADERS.copy(); h["Referer"] = "https://www.bybit.com/"
+    while True:
+        try:
+            r = requests.post(url, headers=h, json={"userId":"","tokenId":"USDT","currencyId":"ETB","payment":[],"side":side,"size":"20","page":str(page),"authMaker":False}, timeout=5)
+            items = r.json().get("result", {}).get("items", [])
+            if not items: break
+            prices.extend([float(i['price']) for i in items])
+            if page >= 5: break
+            page += 1; time.sleep(0.1)
+        except: break
+    return prices
+
+def fetch_mexc(side):
+    url = "https://p2p.army/v1/api/get_p2p_order_book"
+    h = HEADERS.copy(); h["X-APIKEY"] = P2P_ARMY_KEY
+    try:
+        r = requests.post(url, headers=h, json={"market":"mexc","fiat":"ETB","asset":"USDT","side":side,"limit":100}, timeout=10)
+        return [float(ad['price']) for ad in r.json().get("result", {}).get("data", {}).get("ads", [])]
+    except: return []
+
 def save_to_history(stats, official):
     file_exists = os.path.isfile(HISTORY_FILE)
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open(HISTORY_FILE, 'a', newline='') as f:
-        writer = csv.writer(f)
-        if not file_exists: writer.writerow(["Timestamp", "Median", "Q1", "Q3", "Official"])
-        writer.writerow([now, round(stats['median'], 2), round(stats['q1'], 2), round(stats['q3'], 2), round(official, 2) if official else 0])
+        w = csv.writer(f)
+        if not file_exists: w.writerow(["Timestamp", "Median", "Q1", "Q3", "Official"])
+        w.writerow([datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), round(stats['median'],2), round(stats['q1'],2), round(stats['q3'],2), round(official,2) if official else 0])
 
 def load_history():
-    if not os.path.isfile(HISTORY_FILE): return [], [], [], [], []
-    d, m, q1, q3, off = [], [], [], [], []
+    if not os.path.isfile(HISTORY_FILE): return [],[],[],[],[]
+    d, m, q1, q3, off = [],[],[],[],[]
     with open(HISTORY_FILE, 'r') as f:
         reader = csv.reader(f)
         next(reader, None)
@@ -280,79 +324,15 @@ def load_history():
                 d.append(datetime.datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S"))
                 m.append(float(row[1])); q1.append(float(row[2])); q3.append(float(row[3])); off.append(float(row[4]))
             except: pass
-    return d, m, q1, q3, off
+    return d[-48:], m[-48:], q1[-48:], q3[-48:], off[-48:] # Last 24h (approx)
 
-# --- 5. VISUALIZATION (Fixed Overlaps) ---
-def generate_dashboard(stats, official_rate):
-    if not GRAPH_ENABLED: return
-    print(f"📊 Rendering Dashboard...", file=sys.stderr)
-    
-    plt.style.use('dark_background')
-    fig = plt.figure(figsize=(12, 14))
-    fig.suptitle(f'ETB LIQUIDITY SCANNER: {datetime.datetime.now().strftime("%H:%M")}', fontsize=20, color='#00ff9d', fontweight='bold', y=0.97)
-
-    # --- TOP: JITTERED DOT PLOT ---
-    ax1 = fig.add_subplot(2, 1, 1)
-    data = stats['raw_data']
-    y_jitter = [1 + random.uniform(-0.15, 0.15) for _ in data]
-    ax1.scatter(data, y_jitter, color='#00ff9d', alpha=0.6, s=25, label='Ad Price')
-    
-    # Laser Lines
-    ax1.axvline(stats['median'], color='#ff0055', linewidth=3, linestyle='-', alpha=0.9)
-    ax1.axvline(stats['q1'], color='#00bfff', linewidth=1.5, linestyle='--', alpha=0.7)
-    ax1.axvline(stats['q3'], color='#00bfff', linewidth=1.5, linestyle='--', alpha=0.7)
-    
-    # Annotations - FIXED OVERLAP
-    # Median (Top Center)
-    ax1.text(stats['median'], 1.42, f"MEDIAN\n{stats['median']:.2f}", color='#ff0055', ha='center', va='bottom', fontweight='bold', fontsize=12)
-    # Q1 (Bottom Left, pushed left)
-    ax1.text(stats['q1'], 0.58, f"Q1 (Low)\n{stats['q1']:.2f}", color='#00bfff', ha='right', va='top', fontsize=9)
-    # Q3 (Bottom Right, pushed right)
-    ax1.text(stats['q3'], 0.58, f"Q3 (High)\n{stats['q3']:.2f}", color='#00bfff', ha='left', va='top', fontsize=9)
-
-    if official_rate:
-        ax1.axvline(official_rate, color='white', linestyle=':', linewidth=1)
-        ax1.text(official_rate, 0.6, f"Bank\n{official_rate:.0f}", color='white', ha='center', fontsize=9)
-
-    margin = (stats['p90'] - stats['p10']) * 0.25
-    ax1.set_xlim([min(official_rate or 999, stats['p10']) - margin, stats['p90'] + margin])
-    ax1.set_ylim(0.5, 1.5)
-    ax1.set_title("Live Market Depth (Binance + MEXC)", color='white', loc='left', pad=15)
-    ax1.set_yticks([]); ax1.set_xlabel("Price (ETB / True USD)")
-    ax1.grid(True, axis='x', linestyle='--', alpha=0.15)
-
-    # --- BOTTOM: HISTORY LINE CHART ---
-    ax2 = fig.add_subplot(2, 1, 2)
-    dates, medians, q1s, q3s, offs = load_history()
-    
-    if len(dates) > 1:
-        ax2.fill_between(dates, q1s, q3s, color='#00ff9d', alpha=0.2, linewidth=0)
-        ax2.plot(dates, medians, color='#ff0055', linewidth=2, label='Median Rate')
-        if any(offs): ax2.plot(dates, offs, color='white', linestyle='--', linewidth=1, alpha=0.5, label='Official')
-            
-        ax2.set_title("Historical Trend", color='white', loc='left', pad=15)
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        plt.setp(ax2.xaxis.get_majorticklabels(), rotation=0, ha='center', color='#888')
-        ax2.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
-        ax2.yaxis.tick_right()
-        plt.setp(ax2.yaxis.get_majorticklabels(), color='#888')
-        ax2.grid(True, which='major', axis='both', linestyle='-', color='#222', linewidth=1)
-        ax2.set_facecolor('#0d0d0d')
-    else:
-        ax2.text(0.5, 0.5, "Building Time Series...\nRun again later to see line chart.", ha='center', va='center', color='gray')
-
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
-    plt.savefig(GRAPH_FILENAME, dpi=150, facecolor='black')
-    print(f"✅ Graph Saved: {GRAPH_FILENAME}", file=sys.stderr)
-
-# --- 6. MAIN EXECUTION ---
+# --- MAIN ---
 def main():
-    print("🔍 Initializing ETB Cyberpunk Terminal...", file=sys.stderr)
-    
-    with ThreadPoolExecutor(max_workers=10) as ex:
+    print("🔍 Running v7.0 Scan...", file=sys.stderr)
+    with ThreadPoolExecutor(max_workers=8) as ex:
         f_bin = ex.submit(lambda: fetch_binance("BUY") + fetch_binance("SELL"))
         f_byb = ex.submit(lambda: fetch_bybit("1") + fetch_bybit("0"))
-        f_mexc = ex.submit(lambda: fetch_p2p_army_ads("mexc", "SELL"))
+        f_mexc = ex.submit(lambda: fetch_mexc("SELL"))
         f_off = ex.submit(fetch_official_rate)
         f_peg = ex.submit(fetch_usdt_peg)
         
@@ -360,20 +340,14 @@ def main():
         official = f_off.result()
         peg = f_peg.result()
 
-    # Aggregate Data
-    visual_prices = data["Binance"] + data["MEXC"]
-    visual_stats = analyze(visual_prices, peg)
+    visual_data = data["Binance"] + data["MEXC"]
+    stats = analyze(visual_data, peg)
     
-    # Save History & Generate Visuals
-    if visual_stats: 
-        save_to_history(visual_stats, official)
-        generate_dashboard(visual_stats, official)
-        # Pass ALL data to the web generator
-        update_website_html(visual_stats, official, time.strftime('%Y-%m-%d %H:%M:%S'), data, peg)
-
-    print("\n" + "="*80)
-    print(f"✅ Auto-Update Complete: {time.strftime('%H:%M:%S')}")
-    print("="*80 + "\n")
+    if stats:
+        save_to_history(stats, official)
+        generate_charts(stats, official) # Generates BOTH images
+        update_website_html(stats, official, time.strftime('%H:%M UTC'), data, peg)
+        print("✅ Update Complete.")
 
 if __name__ == "__main__":
     main()
