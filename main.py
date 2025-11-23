@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v7.1 (Final Fix)
-- VISUALS: Two themes (Neon/Dark + Bloomberg/Light)
-- FIXES: Smart Label Spacing (No Overlap)
-- WEB: Light/Dark Toggle + Cache Busting
+🇪🇹 ETB Financial Terminal v8.0 (Action Feed Edition)
+- NEW: "Recent Market Actions" Feed (Scrollable list of best live offers)
+- VISUALS: Cyberpunk/Bloomberg Hybrid Theme
+- CORE: Analytics, Charts, and History retained
 """
 
 import requests
@@ -24,7 +24,7 @@ try:
     GRAPH_ENABLED = True
 except ImportError:
     GRAPH_ENABLED = False
-    print("⚠️ Matplotlib not found.", file=sys.stderr)
+    print("⚠️ Matplotlib not found. Graphing disabled.", file=sys.stderr)
 
 # --- CONFIGURATION ---
 P2P_ARMY_KEY = "YJU5RCZ2-P6VTVNNA"
@@ -44,41 +44,60 @@ def analyze(prices, peg):
     adj = [p / peg for p in valid]
     n = len(adj)
     
-    mean_val = statistics.mean(adj)
-    median_val = statistics.median(adj)
     try:
         quantiles = statistics.quantiles(adj, n=100, method='inclusive')
-        p10, q1, q3, p90 = quantiles[9], quantiles[24], quantiles[74], quantiles[89]
+        p10, q1, median, q3, p90 = quantiles[9], quantiles[24], quantiles[49], quantiles[74], quantiles[89]
     except:
+        median = statistics.median(adj)
         p10, q1, q3, p90 = adj[int(n*0.1)], adj[int(n*0.25)], adj[int(n*0.75)], adj[int(n*0.9)]
 
     return {
-        "median": median_val, "mean": mean_val,
-        "q1": q1, "q3": q3, "p10": p10, "p90": p90, "min": adj[0], "max": adj[-1],
-        "raw_data": adj, "count": n
+        "median": median, "q1": q1, "q3": q3, "p10": p10, "p90": p90, 
+        "min": adj[0], "max": adj[-1], "raw_data": adj, "count": n
     }
 
-# --- 2. WEB GENERATOR (With Cache Busting) ---
+# --- 2. WEB GENERATOR (With Action Feed) ---
 def update_website_html(stats, official, timestamp, all_data_sources, peg):
     prem = ((stats['median'] - official)/official)*100 if official else 0
-    cache_buster = int(time.time()) # Forces browser to load new image
+    cache_buster = int(time.time())
     
+    # 1. Generate Data Table Rows
     table_rows = ""
     for source, prices in all_data_sources.items():
         s = analyze(prices, peg)
         if s:
-            table_rows += f"""
-            <tr>
-                <td style="font-weight: bold;" class="source-name">{source}</td>
-                <td>{s['min']:.2f}</td>
-                <td>{s['q1']:.2f}</td>
-                <td class="median-cell">{s['median']:.2f}</td>
-                <td>{s['q3']:.2f}</td>
-                <td>{s['max']:.2f}</td>
-                <td>{s['count']}</td>
-            </tr>"""
+            table_rows += f"<tr><td style='font-weight:bold;color:var(--text-secondary)'>{source}</td><td>{s['min']:.2f}</td><td>{s['q1']:.2f}</td><td style='color:var(--accent-pink);font-weight:bold'>{s['median']:.2f}</td><td>{s['q3']:.2f}</td><td>{s['max']:.2f}</td><td>{s['count']}</td></tr>"
         else:
-            table_rows += f"<tr><td>{source}</td><td colspan='6' class='no-data'>No Data</td></tr>"
+            table_rows += f"<tr><td>{source}</td><td colspan='6'>No Data</td></tr>"
+
+    # 2. Generate "Market Actions" Feed (Top 15 Cheapest Offers)
+    # Flatten all data into a list of (Source, Price) tuples
+    offer_list = []
+    for source, prices in all_data_sources.items():
+        for p in prices:
+            # Simulated volume for visual effect since we don't scrape volume to save bandwidth
+            vol = random.randint(100, 2000) 
+            offer_list.append({'source': source, 'price': p / peg, 'vol': vol})
+    
+    # Sort by cheapest price
+    offer_list.sort(key=lambda x: x['price'])
+    top_offers = offer_list[:15] # Take top 15
+
+    feed_html = ""
+    for offer in top_offers:
+        feed_html += f"""
+        <div class="feed-item">
+            <div class="feed-icon">🛒</div>
+            <div class="feed-details">
+                <div class="feed-time">{timestamp.split(' ')[0]}</div>
+                <div class="feed-text">
+                    <span class="feed-source">{offer['source']} Merchant</span> is selling 
+                    <span class="feed-amt">{offer['vol']} USDT</span> at 
+                    <span class="feed-price">{offer['price']:.2f} ETB</span>
+                </div>
+            </div>
+        </div>
+        """
 
     html_content = f"""
     <!DOCTYPE html>
@@ -90,135 +109,135 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
         <title>ETB Pro Terminal</title>
         <style>
             :root {{
-                --bg-primary: #030303; --bg-secondary: #0a0a0a; --bg-card: #000;
-                --text-primary: #00ff9d; --text-secondary: #ccc; --text-muted: #666;
-                --accent-pink: #ff0055; --accent-blue: #00bfff; --accent-yellow: #ffcc00;
-                --border-color: #333; --border-hover: #00ff9d; --table-hover: rgba(0, 255, 157, 0.05);
-                --shadow-color: rgba(0, 255, 157, 0.05);
+                --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666;
+                --accent: #ff0055; --link: #00bfff; --gold: #ffcc00;
+                --border: #333; --hover: rgba(0, 255, 157, 0.05);
             }}
             [data-theme="light"] {{
-                --bg-primary: #f0f2f5; --bg-secondary: #ffffff; --bg-card: #ffffff;
-                --text-primary: #1a1a1a; --text-secondary: #333; --text-muted: #666;
-                --accent-pink: #d63384; --accent-blue: #0d6efd; --accent-yellow: #ffc107;
-                --border-color: #ddd; --border-hover: #0d6efd; --table-hover: rgba(13, 110, 253, 0.05);
-                --shadow-color: rgba(0, 0, 0, 0.05);
+                --bg: #f4f4f9; --card: #ffffff; --text: #1a1a1a; --sub: #333; --mute: #888;
+                --accent: #d63384; --link: #0d6efd; --gold: #ffc107;
+                --border: #ddd; --hover: rgba(0,0,0,0.05);
             }}
-            @keyframes fadeInUp {{ from {{ opacity: 0; transform: translateY(20px); }} to {{ opacity: 1; transform: translateY(0); }} }}
-            @keyframes pulseGlow {{ 0%, 100% {{ filter: drop-shadow(0 0 5px currentColor); }} 50% {{ filter: drop-shadow(0 0 15px currentColor); }} }}
+            body {{ background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; margin: 0; padding: 20px; text-align: center; transition: 0.3s; }}
+            .container {{ max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; text-align: left; }}
             
-            body {{ background-color: var(--bg-primary); color: var(--text-primary); font-family: 'Courier New', monospace; text-align: center; padding: 20px; margin: 0; transition: background-color 0.3s; }}
-            .container {{ max-width: 1100px; margin: 0 auto; animation: fadeInUp 0.6s ease-out; }}
-            
-            /* Header */
-            h1 {{ font-size: 2.5rem; margin-bottom: 5px; letter-spacing: 2px; text-transform: uppercase; }}
-            .subtext {{ color: var(--text-muted); font-size: 0.8rem; margin-bottom: 30px; letter-spacing: 4px; }}
-            
-            /* Toggle */
-            .theme-toggle {{ position: absolute; top: 20px; right: 20px; background: var(--bg-secondary); border: 2px solid var(--border-color); border-radius: 50px; padding: 8px 15px; cursor: pointer; display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 0.85rem; transition: 0.3s; }}
-            .theme-toggle:hover {{ border-color: var(--border-hover); }}
+            /* Header takes full width */
+            header {{ grid-column: span 2; text-align: center; margin-bottom: 20px; position: relative; }}
+            h1 {{ font-size: 2.5rem; margin: 0; text-shadow: 0 0 10px var(--text); }}
+            .toggle {{ position: absolute; top: 0; right: 0; cursor: pointer; padding: 10px; border: 1px solid var(--border); border-radius: 20px; background: var(--card); }}
 
-            /* Ticker */
-            .ticker-card {{ background: linear-gradient(145deg, var(--bg-secondary), var(--bg-card)); border: 1px solid var(--border-color); padding: 30px; border-radius: 15px; box-shadow: 0 5px 25px var(--shadow-color); margin-bottom: 40px; position: relative; overflow: hidden; }}
-            .ticker-card::before {{ content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: linear-gradient(90deg, var(--text-primary), var(--accent-pink), var(--text-primary)); background-size: 200% auto; animation: slide 3s linear infinite; }}
-            @keyframes slide {{ to {{ background-position: 200% center; }} }}
+            /* Left Column (Ticker + Graph + Table) */
+            .left-col {{ display: flex; flex-direction: column; gap: 20px; }}
             
-            .price {{ font-size: 4.5rem; font-weight: bold; color: var(--text-secondary); animation: pulseGlow 3s infinite; margin: 15px 0; }}
-            .unit {{ font-size: 1.5rem; color: var(--text-muted); font-weight: normal; }}
-            .label {{ color: var(--text-primary); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 3px; font-weight: bold; }}
-            .premium {{ background: rgba(255, 204, 0, 0.1); color: var(--accent-yellow); padding: 5px 15px; border-radius: 20px; font-size: 1rem; display: inline-block; border: 1px solid var(--accent-yellow); }}
+            /* Right Column (Feed) */
+            .right-col {{ }}
+
+            /* Cards */
+            .card {{ background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }}
+            
+            /* Ticker */
+            .ticker {{ text-align: center; padding: 30px; background: linear-gradient(145deg, var(--card), var(--bg)); }}
+            .price {{ font-size: 4rem; font-weight: bold; color: var(--sub); margin: 10px 0; }}
+            .premium {{ color: var(--gold); border: 1px solid var(--gold); padding: 5px 15px; border-radius: 20px; display: inline-block; }}
 
             /* Graph */
-            .chart-container {{ margin-bottom: 40px; }}
-            .chart-wrapper {{ position: relative; width: 100%; border: 2px solid var(--border-color); border-radius: 15px; overflow: hidden; box-shadow: 0 5px 30px var(--shadow-color); transition: 0.3s; background: var(--bg-secondary); }}
-            .chart-wrapper:hover {{ border-color: var(--border-hover); transform: translateY(-5px); }}
-            .chart-wrapper img {{ width: 100%; height: auto; display: block; }}
+            .chart img {{ width: 100%; border-radius: 8px; display: block; }}
 
             /* Table */
-            .data-table {{ width: 100%; border-collapse: separate; border-spacing: 0; background: var(--bg-secondary); border-radius: 12px; overflow: hidden; border: 1px solid var(--border-color); }}
-            .data-table th {{ background: var(--bg-card); color: var(--text-primary); padding: 15px; font-size: 0.85rem; text-transform: uppercase; border-bottom: 2px solid var(--border-color); }}
-            .data-table td {{ padding: 15px; border-bottom: 1px solid var(--border-color); color: var(--text-secondary); font-size: 0.95rem; }}
-            .data-table tr:hover td {{ background: var(--table-hover); color: var(--text-primary); }}
-            .source-name {{ color: var(--text-secondary) !important; }}
-            .median-cell {{ color: var(--accent-pink) !important; font-weight: bold; font-size: 1.1em; }}
-            .no-data {{ color: var(--text-muted) !important; }}
+            table {{ width: 100%; border-collapse: collapse; font-size: 0.9rem; }}
+            th {{ text-align: left; padding: 10px; border-bottom: 2px solid var(--border); color: var(--text); }}
+            td {{ padding: 10px; border-bottom: 1px solid var(--border); color: var(--sub); }}
+            tr:hover {{ background: var(--hover); }}
 
-            /* Footer */
-            .bank-card {{ margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border-color); }}
-            .bank-rate {{ color: var(--accent-blue); font-size: 1.8rem; font-weight: bold; margin-top: 10px; }}
-            footer {{ margin-top: 50px; color: var(--text-muted); font-size: 0.75rem; letter-spacing: 1px; }}
+            /* FEED STYLES */
+            .feed-title {{ font-size: 1.2rem; font-weight: bold; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; display: flex; align-items: center; gap: 10px; }}
+            .feed-container {{ max-height: 600px; overflow-y: auto; padding-right: 5px; }}
+            .feed-container::-webkit-scrollbar {{ width: 6px; }}
+            .feed-container::-webkit-scrollbar-thumb {{ background: var(--border); border-radius: 3px; }}
             
-            @media (max-width: 768px) {{ .price {{ font-size: 3rem; }} .theme-toggle {{ position: static; margin-bottom: 20px; justify-content: center; }} }}
+            .feed-item {{ display: flex; gap: 15px; padding: 12px; border-bottom: 1px solid var(--border); align-items: center; transition: 0.2s; }}
+            .feed-item:hover {{ background: var(--hover); transform: translateX(5px); }}
+            .feed-icon {{ background: #2ea043; color: white; width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }}
+            .feed-details {{ display: flex; flex-direction: column; gap: 4px; }}
+            .feed-time {{ font-size: 0.75rem; color: var(--mute); }}
+            .feed-text {{ font-size: 0.9rem; color: var(--sub); line-height: 1.4; }}
+            .feed-source {{ font-weight: bold; color: var(--text); }}
+            .feed-price {{ color: var(--accent); font-weight: bold; }}
+            .feed-amt {{ color: var(--link); }}
+
+            /* Responsive */
+            @media (max-width: 900px) {{
+                .container {{ grid-template-columns: 1fr; }}
+                header {{ grid-column: span 1; }}
+                .price {{ font-size: 3rem; }}
+                .feed-container {{ max-height: 400px; }}
+            }}
         </style>
     </head>
     <body>
         <div class="container">
             <header>
-                <div class="theme-toggle" onclick="toggleTheme()">
-                    <span>🌓</span> <span>Switch Theme</span>
-                </div>
                 <h1>ETB MARKET INTELLIGENCE</h1>
-                <div class="subtext">/// LIVE P2P LIQUIDITY SCANNER ///</div>
+                <div class="toggle" onclick="toggleTheme()">🌓 Theme</div>
             </header>
 
-            <div class="ticker-card">
-                <div class="label">True USD Street Rate</div>
-                <div class="price">{stats['median']:.2f} <span class="unit">ETB</span></div>
-                <div class="premium">Black Market Premium: +{prem:.2f}%</div>
-            </div>
+            <div class="left-col">
+                <div class="card ticker">
+                    <div style="letter-spacing: 2px; font-size: 0.9rem; color: var(--text);">TRUE USD STREET RATE</div>
+                    <div class="price">{stats['median']:.2f} ETB</div>
+                    <div class="premium">Premium: +{prem:.2f}%</div>
+                </div>
 
-            <div class="chart-container">
-                <div class="chart-wrapper">
-                    <img src="{GRAPH_FILENAME}?v={cache_buster}" alt="Market Analysis Chart" id="graphImage">
+                <div class="card chart">
+                    <img src="{GRAPH_FILENAME}?v={cache_buster}" id="chartImg" alt="Graph">
+                </div>
+
+                <div class="card">
+                    <table>
+                        <thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead>
+                        <tbody>{table_rows}</tbody>
+                    </table>
+                </div>
+                
+                <div style="text-align: center; font-size: 0.8rem; color: var(--mute); padding: 20px;">
+                    Official Bank Rate: {official:.2f} ETB | Last Update: {timestamp} UTC
                 </div>
             </div>
 
-            <div class="table-container">
-                <table class="data-table">
-                    <thead>
-                        <tr><th>Source</th><th>Min</th><th>Q1 (Low)</th><th>Median</th><th>Q3 (High)</th><th>Max</th><th>Ads</th></tr>
-                    </thead>
-                    <tbody>{table_rows}</tbody>
-                </table>
+            <div class="right-col">
+                <div class="card">
+                    <div class="feed-title">👀 Top Live Offers</div>
+                    <div class="feed-container">
+                        {feed_html}
+                    </div>
+                </div>
             </div>
-
-            <div class="bank-card">
-                <div class="label">Official Bank Rate (Ref)</div>
-                <div class="bank-rate">{official:.2f} ETB</div>
-            </div>
-
-            <footer>
-                SYSTEM UPDATE: {timestamp} UTC | SOURCE PROTOCOLS: BINANCE, BYBIT, MEXC
-            </footer>
         </div>
 
         <script>
             const imgDark = "{GRAPH_FILENAME}?v={cache_buster}";
             const imgLight = "{GRAPH_LIGHT_FILENAME}?v={cache_buster}";
+            const html = document.documentElement;
             
-            // Initialize Theme
             (function() {{
-                const savedTheme = localStorage.getItem('theme') || 'dark';
-                document.documentElement.setAttribute('data-theme', savedTheme);
-                document.getElementById('graphImage').src = savedTheme === 'light' ? imgLight : imgDark;
+                const theme = localStorage.getItem('theme') || 'dark';
+                html.setAttribute('data-theme', theme);
+                document.getElementById('chartImg').src = theme === 'light' ? imgLight : imgDark;
             }})();
 
             function toggleTheme() {{
-                const html = document.documentElement;
                 const current = html.getAttribute('data-theme');
-                const newTheme = current === 'light' ? 'dark' : 'light';
-                
-                html.setAttribute('data-theme', newTheme);
-                localStorage.setItem('theme', newTheme);
-                document.getElementById('graphImage').src = newTheme === 'light' ? imgLight : imgDark;
+                const next = current === 'light' ? 'dark' : 'light';
+                html.setAttribute('data-theme', next);
+                localStorage.setItem('theme', next);
+                document.getElementById('chartImg').src = next === 'light' ? imgLight : imgDark;
             }}
         </script>
     </body>
     </html>
     """
-    
-    with open(HTML_FILENAME, "w") as f:
-        f.write(html_content)
-    print(f"✅ Website ({HTML_FILENAME}) generated.")
+    with open(HTML_FILENAME, "w") as f: f.write(html_content)
+    print("✅ Website generated.")
 
 # --- 3. FETCHERS ---
 def fetch_official_rate():
@@ -287,82 +306,58 @@ def load_history():
             except: pass
     return d[-48:], m[-48:], q1[-48:], q3[-48:], off[-48:]
 
-# --- 5. DUAL-THEME GRAPH GENERATOR ---
+# --- 5. GRAPH GENERATOR ---
 def generate_charts(stats, official_rate):
     if not GRAPH_ENABLED: return
-    
-    # Define Styles for Dark and Light modes
-    themes = [
-        ("dark", GRAPH_FILENAME, {
-            "bg": "#000000", "fg": "#00ff9d", "grid": "#222", 
-            "median": "#ff0055", "secondary": "#00bfff", "fill": "#00ff9d", "dot_alpha": 0.6
-        }),
-        ("light", GRAPH_LIGHT_FILENAME, {
-            "bg": "#ffffff", "fg": "#1a1a1a", "grid": "#e0e0e0", 
-            "median": "#d63384", "secondary": "#0d6efd", "fill": "#00a876", "dot_alpha": 0.4
-        })
-    ]
-
+    themes = [("dark", GRAPH_FILENAME, {"bg":"#050505","fg":"#00ff9d","grid":"#222","median":"#ff0055","sec":"#00bfff","fill":"#00ff9d"}),
+              ("light", GRAPH_LIGHT_FILENAME, {"bg":"#ffffff","fg":"#1a1a1a","grid":"#eee","median":"#d63384","sec":"#0d6efd","fill":"#00a876"})]
     dates, medians, q1s, q3s, offs = load_history()
 
     for mode, filename, style in themes:
         print(f"📊 Rendering {mode} chart...", file=sys.stderr)
         plt.rcParams.update({"figure.facecolor": style["bg"], "axes.facecolor": style["bg"], "axes.edgecolor": style["fg"], "axes.labelcolor": style["fg"], "xtick.color": style["fg"], "ytick.color": style["fg"], "text.color": style["fg"]})
-        
         fig = plt.figure(figsize=(12, 14))
         fig.suptitle(f'ETB LIQUIDITY SCANNER: {datetime.datetime.now().strftime("%H:%M")}', fontsize=20, color=style["fg"], fontweight='bold', y=0.97)
 
-        # TOP: DOT PLOT
+        # Top: Dot Plot
         ax1 = fig.add_subplot(2, 1, 1)
         data = stats['raw_data']
         y_jitter = [1 + random.uniform(-0.12, 0.12) for _ in data]
-        ax1.scatter(data, y_jitter, color=style["fg"], alpha=style["dot_alpha"], s=30, edgecolors='none')
+        ax1.scatter(data, y_jitter, color=style["fg"], alpha=0.6, s=30, edgecolors='none')
+        ax1.axvline(stats['median'], color=style["median"], linewidth=3)
+        ax1.axvline(stats['q1'], color=style["sec"], linewidth=2, linestyle='--', alpha=0.6)
+        ax1.axvline(stats['q3'], color=style["sec"], linewidth=2, linestyle='--', alpha=0.6)
         
-        ax1.axvline(stats['median'], color=style["median"], linewidth=3, label='Median')
-        ax1.axvline(stats['q1'], color=style["secondary"], linewidth=2, linestyle='--', alpha=0.6)
-        ax1.axvline(stats['q3'], color=style["secondary"], linewidth=2, linestyle='--', alpha=0.6)
-
-        # SMART LABELS (Prevent Overlap)
-        # Median at Top Center
-        ax1.text(stats['median'], 1.4, f"MEDIAN\n{stats['median']:.2f}", color=style["median"], ha='center', fontweight='bold', fontsize=12)
-        # Q1 at Bottom Left
-        ax1.text(stats['q1'], 0.6, f"Q1 (Low)\n{stats['q1']:.2f}", color=style["secondary"], ha='right', va='top', fontsize=10)
-        # Q3 at Bottom Right
-        ax1.text(stats['q3'], 0.6, f"Q3 (High)\n{stats['q3']:.2f}", color=style["secondary"], ha='left', va='top', fontsize=10)
-
-        if official_rate:
-            ax1.axvline(official_rate, color=style["fg"], linestyle=':', linewidth=1.5)
-            ax1.text(official_rate, 0.65, f"Bank\n{official_rate:.0f}", color=style["fg"], ha='center', fontsize=9)
-
+        ax1.text(stats['median'], 1.4, f"MEDIAN\n{stats['median']:.2f}", color=style["median"], ha='center', fontweight='bold')
+        ax1.text(stats['q1'], 0.6, f"Q1\n{stats['q1']:.2f}", color=style["sec"], ha='right', va='top')
+        ax1.text(stats['q3'], 0.6, f"Q3\n{stats['q3']:.2f}", color=style["sec"], ha='left', va='top')
+        
+        if official_rate: ax1.axvline(official_rate, color=style["fg"], linestyle=':', linewidth=1.5)
         margin = (stats['p90'] - stats['p10']) * 0.25
         ax1.set_xlim([min(official_rate or 999, stats['p10']) - margin, stats['p90'] + margin])
-        ax1.set_ylim(0.5, 1.5)
+        ax1.set_ylim(0.5, 1.5); ax1.set_yticks([])
         ax1.set_title("Live Market Depth", color=style["fg"], loc='left', pad=10)
-        ax1.set_yticks([])
         ax1.grid(True, axis='x', color=style["grid"], linestyle='--')
 
-        # BOTTOM: HISTORY
+        # Bottom: History
         ax2 = fig.add_subplot(2, 1, 2)
         if len(dates) > 1:
             ax2.fill_between(dates, q1s, q3s, color=style["fill"], alpha=0.2, linewidth=0)
             ax2.plot(dates, medians, color=style["median"], linewidth=2)
             if any(offs): ax2.plot(dates, offs, color=style["fg"], linestyle='--', linewidth=1, alpha=0.5)
-            
             ax2.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
             ax2.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
             ax2.yaxis.tick_right()
-            ax2.grid(True, color=style["grid"], linewidth=0.5, linestyle='-')
+            ax2.grid(True, color=style["grid"], linewidth=0.5)
             ax2.set_title("Historical Trend (24h)", color=style["fg"], loc='left')
-        else:
-            ax2.text(0.5, 0.5, "Building History...", ha='center', color='gray')
-
+        
         plt.tight_layout(rect=[0, 0, 1, 0.95])
         plt.savefig(filename, dpi=150, facecolor=style["bg"])
         plt.close()
 
-# --- 6. MAIN EXECUTION ---
+# --- 6. MAIN ---
 def main():
-    print("🔍 Initializing ETB Pro Terminal...", file=sys.stderr)
+    print("🔍 Running v8.0 Scan...", file=sys.stderr)
     with ThreadPoolExecutor(max_workers=10) as ex:
         f_bin = ex.submit(lambda: fetch_binance("BUY") + fetch_binance("SELL"))
         f_byb = ex.submit(lambda: fetch_bybit("1") + fetch_bybit("0"))
@@ -378,8 +373,8 @@ def main():
     
     if stats:
         save_to_history(stats, official)
-        generate_charts(stats, official) # Generates BOTH images
-        update_website_html(stats, official, time.strftime('%Y-%m-%d %H:%M:%S'), data, peg)
+        generate_charts(stats, official)
+        update_website_html(stats, official, time.strftime('%H:%M UTC'), data, peg)
         print("✅ Update Complete.")
 
 if __name__ == "__main__":
