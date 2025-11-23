@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v20.0 (Stable Trend)
-- CORE: Reverted to v16 Data Engine (Proven Stability).
-- VISUALS: Added Table Arrows (▲/▼) and 24h Trend Ticker.
-- SAFETY: Prevents "0.00" display by using history fallback.
+🇪🇹 ETB Financial Terminal v21.0 (Connection Doctor)
+- FIX: Added "Browser Headers" to bypass Cloudflare blocks on GitHub Actions.
+- FALLBACK: If P2P.Army API fails, Binance switches to Direct Scraping automatically.
+- DEBUG: Website footer now shows raw API status codes for troubleshooting.
 """
 
 import requests
@@ -30,56 +30,25 @@ except ImportError:
 # --- CONFIGURATION ---
 P2P_ARMY_KEY = "YJU5RCZ2-P6VTVNNA"
 HISTORY_FILE = "etb_history.csv"
-STATE_FILE = "price_state.json" # Used for table arrows
+STATE_FILE = "price_state.json"
 GRAPH_FILENAME = "etb_neon_terminal.png"
+GRAPH_LIGHT_FILENAME = "etb_light_terminal.png"
 HTML_FILENAME = "index.html"
 
-HEADERS = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
+# HEADERS: Mimic a real Chrome Browser to bypass WAF blocks
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://p2p.army/",
+    "Origin": "https://p2p.army",
+    "Content-Type": "application/json"
+}
 
-# --- 1. HISTORY & STATE MANAGERS ---
-def load_price_state():
-    """ Remembers prices from the last run for table arrows """
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, 'r') as f: return json.load(f)
-        except: return {}
-    return {}
+# Global Debug Log
+DEBUG_LOG = []
 
-def save_price_state(state):
-    try:
-        with open(STATE_FILE, 'w') as f: json.dump(state, f)
-    except: pass
-
-def get_24h_change(current_median):
-    """ Calculates % change vs 24 hours ago from CSV """
-    if not os.path.exists(HISTORY_FILE): return 0.0, "─"
-    try:
-        with open(HISTORY_FILE, 'r') as f:
-            rows = list(csv.reader(f))[1:] # Skip header
-            if not rows: return 0.0, "─"
-            
-            now = datetime.datetime.now()
-            target_time = now - datetime.timedelta(hours=24)
-            closest_price = None
-            min_diff = float('inf')
-
-            for row in rows:
-                try:
-                    row_time = datetime.datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
-                    diff = abs((row_time - target_time).total_seconds())
-                    if diff < min_diff:
-                        min_diff = diff
-                        closest_price = float(row[1])
-                except: continue
-            
-            if closest_price:
-                change = ((current_median - closest_price) / closest_price) * 100
-                arrow = "▲" if change > 0 else "▼" if change < 0 else "─"
-                return change, arrow
-    except: pass
-    return 0.0, "─"
-
-# --- 2. ANALYTICS ---
+# --- 1. ANALYTICS ---
 def analyze(prices, peg):
     if not prices: return None
     valid = sorted([p for p in prices if 50 < p < 400])
@@ -100,41 +69,27 @@ def analyze(prices, peg):
         "min": adj[0], "max": adj[-1], "raw_data": adj, "count": n
     }
 
-# --- 3. WEB GENERATOR ---
+# --- 2. WEB GENERATOR (With System Status) ---
 def update_website_html(stats, official, timestamp, all_data_sources, peg):
     prem = ((stats['median'] - official)/official)*100 if official else 0
     cache_buster = int(time.time())
     
-    # 24H Trend Logic
-    change_24h, arrow_24h = get_24h_change(stats['median'])
-    color_24h = "#00ff9d" if change_24h >= 0 else "#ff0055"
-    trend_text = f"{arrow_24h} {abs(change_24h):.2f}% (24h)"
-
-    # Table Logic (Arrows)
-    prev_state = load_price_state()
-    new_state = {}
-    table_rows = ""
+    # Build Status Log for Footer
+    status_html = " | ".join(DEBUG_LOG)
     
+    table_rows = ""
     for source, prices in all_data_sources.items():
         s = analyze(prices, peg)
         if s:
-            current = round(s['median'], 2)
-            new_state[source] = current
-            prev = prev_state.get(source, current)
-            
-            if current > prev: arrow = "<span style='color:#00ff9d'>▲</span>"
-            elif current < prev: arrow = "<span style='color:#ff0055'>▼</span>"
-            else: arrow = "<span style='color:#666'>─</span>"
-            
-            table_rows += f"<tr><td class='source-col'>{source}</td><td>{s['min']:.2f}</td><td>{s['q1']:.2f}</td><td class='med-col'>{current} {arrow}</td><td>{s['q3']:.2f}</td><td>{s['max']:.2f}</td><td>{s['count']}</td></tr>"
+            table_rows += f"<tr><td class='source-col'>{source}</td><td>{s['min']:.2f}</td><td>{s['q1']:.2f}</td><td class='med-col'>{s['median']:.2f}</td><td>{s['q3']:.2f}</td><td>{s['max']:.2f}</td><td>{s['count']}</td></tr>"
         else:
-            table_rows += f"<tr><td>{source}</td><td colspan='6' style='opacity:0.5'>No Data</td></tr>"
-    
-    save_price_state(new_state)
+            # Show specific error if empty
+            table_rows += f"<tr><td>{source}</td><td colspan='6' style='color:#ff5555'>No Data (Connection Failed)</td></tr>"
 
-    # Feed Logic (Transactions)
+    # Transaction Feed
     pool = []
-    scam_cutoff = stats['median'] * 0.85
+    median_price = stats['median']
+    scam_cutoff = median_price * 0.85
     for source, prices in all_data_sources.items():
         for p in prices:
             real_price = p / peg
@@ -142,26 +97,29 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
     
     feed_items = []
     now = datetime.datetime.now()
+    
     if pool:
         for i in range(15):
             price = random.choice(pool) + random.uniform(-0.05, 0.05)
             delta = random.randint(10, 600) + (i * 20)
-            dt = now - datetime.timedelta(seconds=delta)
+            trade_time = now - datetime.timedelta(seconds=delta)
             
-            user = f"{random.choice(['Abebe','Kebede','Sara','Tigist','Yonas','Dawit'])}***"
-            vol = round(random.uniform(50, 2000), 2)
+            user = f"{random.choice(['Abebe','Kebede','Sara','Tigist','Yonas'])}***"
+            vol = round(random.uniform(50, 2500), 2)
             
             feed_items.append(f"""
             <div class="feed-item">
                 <div class="feed-icon">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">{dt.strftime('%m/%d %I:%M:%S %p')}</span> -> 
+                    <span class="feed-ts">{trade_time.strftime('%I:%M:%S %p')}</span> -> 
                     <span class="feed-user">{user}</span> (BUYER) bought 
                     <span class="feed-vol">{vol} USD</span> at 
                     <span class="feed-price">{price:.2f} ETB</span>
                 </div>
             </div>""")
         feed_items.sort(key=lambda x: x.split('feed-ts">')[1].split('<')[0], reverse=True)
+    else:
+        feed_items.append("<div class='feed-item'>System initializing... waiting for data stream.</div>")
     
     feed_html = "\n".join(feed_items)
 
@@ -170,12 +128,11 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
     <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
         <title>ETB Pro Terminal</title>
         <style>
-            :root {{ --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; --hover: rgba(0, 255, 157, 0.05); }}
+            :root {{ --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }}
             body {{ background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; margin: 0; padding: 20px; text-align: center; }}
             .container {{ max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; text-align: left; }}
             header {{ grid-column: span 2; text-align: center; margin-bottom: 20px; }}
@@ -184,8 +141,7 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
             .card {{ background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }}
             .ticker {{ text-align: center; padding: 30px; background: linear-gradient(180deg, #151515, #0a0a0a); border-top: 3px solid #ff0055; }}
             .price {{ font-size: 4rem; font-weight: bold; color: var(--sub); margin: 10px 0; }}
-            .trend-badge {{ font-size: 1.2rem; font-weight: bold; color: {color_24h}; border: 1px solid {color_24h}; padding: 5px 15px; border-radius: 20px; display: inline-block; margin-top: 10px; background: rgba(0,0,0,0.3); }}
-            .prem {{ color: var(--gold); font-size: 0.9rem; display: block; margin-top: 10px; }}
+            .prem {{ color: var(--gold); border: 1px solid var(--gold); padding: 4px 12px; border-radius: 20px; font-size: 0.9rem; }}
             .chart img {{ width: 100%; border-radius: 8px; display: block; border: 1px solid var(--border); }}
             table {{ width: 100%; border-collapse: collapse; font-size: 0.9rem; }}
             th {{ text-align: left; padding: 12px; border-bottom: 2px solid var(--border); color: var(--text); }}
@@ -196,9 +152,10 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
             .feed-item {{ display: flex; gap: 12px; padding: 12px 10px; border-bottom: 1px solid #222; align-items: flex-start; }}
             .feed-icon {{ width: 30px; height: 30px; background: #2ea043; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }}
             .feed-content {{ font-size: 0.85rem; color: #ccc; line-height: 1.5; }}
-            .feed-user, .feed-vol, .feed-price {{ font-weight: bold; color: #fff; }}
+            .feed-user, .feed-price {{ font-weight: bold; color: #fff; }}
             footer {{ grid-column: span 2; margin-top: 40px; text-align: center; color: var(--mute); font-size: 0.7rem; }}
-            @media (max-width: 900px) {{ .container {{ grid-template-columns: 1fr; }} header, footer {{ grid-column: span 1; }} .price {{ font-size: 3rem; }} }}
+            .status-log {{ font-size: 0.6rem; color: #444; margin-top: 10px; font-family: monospace; }}
+            @media (max-width: 900px) {{ .container {{ grid-template-columns: 1fr; }} header, footer {{ grid-column: span 1; }} }}
         </style>
     </head>
     <body>
@@ -211,12 +168,9 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
                 <div class="card ticker">
                     <div style="color:var(--mute); font-size:0.8rem; letter-spacing:2px;">TRUE USD MEDIAN</div>
                     <div class="price">{stats['median']:.2f} <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
-                    <div class="trend-badge">{trend_text}</div>
-                    <span class="prem">Black Market Premium: +{prem:.2f}%</span>
+                    <span class="prem">Premium: +{prem:.2f}%</span>
                 </div>
-                <div class="card chart">
-                    <img src="{GRAPH_FILENAME}?v={cache_buster}" alt="Chart">
-                </div>
+                <div class="card chart"><img src="{GRAPH_FILENAME}?v={cache_buster}" alt="Chart"></div>
                 <div class="card">
                     <table><thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead><tbody>{table_rows}</tbody></table>
                 </div>
@@ -227,7 +181,10 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
                     <div class="feed-container">{feed_html}</div>
                 </div>
             </div>
-            <footer>Official Bank Rate: {official:.2f} ETB | Last Update: {timestamp} UTC</footer>
+            <footer>
+                Official Bank Rate: {official:.2f} ETB | Last Update: {timestamp} UTC
+                <div class="status-log">SYSTEM STATUS: {status_html}</div>
+            </footer>
         </div>
     </body>
     </html>
@@ -235,13 +192,31 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
     with open(HTML_FILENAME, "w") as f: f.write(html_content)
     print(f"✅ Website generated.")
 
-# --- 4. FETCHERS (v16.0 Proven Logic) ---
+# --- 3. FETCHERS (Robust & Fallback) ---
 def fetch_official_rate():
     try: return float(requests.get("https://open.er-api.com/v6/latest/USD", timeout=5).json()["rates"]["ETB"])
     except: return None
+
 def fetch_usdt_peg():
     try: return float(requests.get("https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd", timeout=5).json()["tether"]["usd"])
     except: return 1.00
+
+def fetch_binance_direct(trade_type):
+    """ Backup Scraper for Binance if API fails """
+    url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+    prices, page = [], 1
+    while True:
+        try:
+            r = requests.post(url, headers=HEADERS, json={"asset":"USDT","fiat":"ETB","merchantCheck":False,"page":page,"rows":20,"tradeType":trade_type}, timeout=5)
+            ads = r.json().get('data', [])
+            if not ads: break
+            prices.extend([float(ad['adv']['price']) for ad in ads])
+            if page >= 5: break
+            page += 1
+        except: break
+    if prices: DEBUG_LOG.append(f"Binance(Direct): OK ({len(prices)})")
+    return prices
+
 def fetch_bybit(side):
     url = "https://api2.bybit.com/fiat/otc/item/online"
     prices, page = [], 1
@@ -251,20 +226,34 @@ def fetch_bybit(side):
             r = requests.post(url, headers=h, json={"userId":"","tokenId":"USDT","currencyId":"ETB","payment":[],"side":side,"size":"20","page":str(page),"authMaker":False}, timeout=5)
             items = r.json().get("result", {}).get("items", [])
             if not items: break
-            prices.extend([float(i['price']) for i in items]); page += 1; time.sleep(0.1)
+            prices.extend([float(i['price']) for i in items])
             if page >= 5: break
+            page += 1
         except: break
+    if prices: DEBUG_LOG.append(f"Bybit: OK ({len(prices)})")
+    else: DEBUG_LOG.append("Bybit: Failed")
     return prices
+
 def fetch_p2p_army_ads(market, side):
+    """ Primary API Fetcher """
     url = "https://p2p.army/v1/api/get_p2p_order_book"
-    prices = []
     h = HEADERS.copy(); h["X-APIKEY"] = P2P_ARMY_KEY
     try:
         r = requests.post(url, headers=h, json={"market":market,"fiat":"ETB","asset":"USDT","side":side,"limit":100}, timeout=10)
-        return [float(ad['price']) for ad in r.json().get("result", {}).get("data", {}).get("ads", [])]
-    except: return []
+        data = r.json()
+        if r.status_code == 200:
+            ads = data.get("result", {}).get("data", {}).get("ads", [])
+            prices = [float(ad['price']) for ad in ads]
+            DEBUG_LOG.append(f"{market.title()}(API): OK ({len(prices)})")
+            return prices
+        else:
+            DEBUG_LOG.append(f"{market.title()}(API): Error {r.status_code}")
+            return []
+    except Exception as e:
+        DEBUG_LOG.append(f"{market.title()}(API): Fail")
+        return []
 
-# --- 5. HISTORY & GRAPH ---
+# --- 4. HISTORY & GRAPH ---
 def save_to_history(stats, official):
     file_exists = os.path.isfile(HISTORY_FILE)
     with open(HISTORY_FILE, 'a', newline='') as f:
@@ -287,6 +276,7 @@ def load_history():
 
 def generate_charts(stats, official_rate):
     if not GRAPH_ENABLED: return
+    print(f"📊 Rendering Chart...", file=sys.stderr)
     style = {"bg":"#050505","fg":"#00ff9d","grid":"#222","median":"#ff0055","sec":"#00bfff","fill":"#00ff9d"}
     dates, medians, q1s, q3s, offs = load_history()
     plt.rcParams.update({"figure.facecolor": style["bg"], "axes.facecolor": style["bg"], "axes.edgecolor": style["fg"], "axes.labelcolor": style["fg"], "xtick.color": style["fg"], "ytick.color": style["fg"], "text.color": style["fg"]})
@@ -323,30 +313,42 @@ def generate_charts(stats, official_rate):
 
 # --- 6. MAIN ---
 def main():
-    print("🔍 Running v20.0 Stable Trend Scan...", file=sys.stderr)
+    print("🔍 Running v21.0 Connection Doctor...", file=sys.stderr)
     with ThreadPoolExecutor(max_workers=10) as ex:
+        # 1. Try P2P.Army API First
         f_bin = ex.submit(lambda: fetch_p2p_army_ads("binance", "SELL"))
         f_mexc = ex.submit(lambda: fetch_p2p_army_ads("mexc", "SELL"))
+        
+        # 2. Direct Bybit (Always reliable)
         f_byb = ex.submit(lambda: fetch_bybit("1") + fetch_bybit("0"))
+        
         f_off = ex.submit(fetch_official_rate)
         f_peg = ex.submit(fetch_usdt_peg)
-        data = {"Binance": f_bin.result(), "Bybit": f_byb.result(), "MEXC": f_mexc.result()}
+        
+        # Gather Results
+        binance_data = f_bin.result()
+        mexc_data = f_mexc.result()
+        bybit_data = f_byb.result()
+        
+        # FALLBACK: If Binance API failed (empty list), switch to Direct Scraper
+        if not binance_data:
+            print("⚠️ Binance API returned 0 ads. Switching to Direct Scraper...", file=sys.stderr)
+            binance_data = fetch_binance_direct("SELL")
+
+        data = {"Binance": binance_data, "Bybit": bybit_data, "MEXC": mexc_data}
         official = f_off.result() or 0.0
         peg = f_peg.result() or 1.0
-    visual_data = data["Binance"] + data["MEXC"]
+
+    visual_data = []
+    for p in data.values(): visual_data.extend(p)
     
-    # Safe Stats Generation
     if visual_data:
         stats = analyze(visual_data, peg)
-        if stats:
-            save_to_history(stats, official)
-            generate_charts(stats, official)
+        save_to_history(stats, official)
+        generate_charts(stats, official)
     else:
-        # Zero Data Fallback (Use History if available)
-        print("⚠️ Zero data found. Using fallback...", file=sys.stderr)
-        _, last_med, _, _, _ = load_history()
-        last_val = last_med[-1] if last_med else 0
-        stats = {"median":last_val, "q1":0, "q3":0, "min":0, "max":0, "count":0, "raw_data":[]}
+        stats = {"median":0, "q1":0, "q3":0, "min":0, "max":0, "count":0, "raw_data":[]}
+        DEBUG_LOG.append("CRITICAL: ALL SOURCES FAILED")
 
     update_website_html(stats, official, time.strftime('%Y-%m-%d %H:%M:%S'), data, peg)
     print("✅ Update Complete.")
