@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v5.0 (Pro Edition)
-- WEB: Now includes a detailed Data Table & Formatted Numbers
-- VISUALS: Neon Dot Plot + History Chart
-- DATA: Auto-logs to etb_history.csv
+🇪🇹 ETB Financial Terminal v6.0 (Cyberpunk Pro)
+- VISUALS: Fixed label overlaps in graphs.
+- ANIMATION: Added CSS animations for ticker, entrance, and table hovers.
+- CORE: Retains all previous functionality (Table, History, Auto-Log).
 """
 
 import requests
@@ -37,7 +37,7 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# --- 1. ANALYTICS ENGINE (Moved up for use in HTML gen) ---
+# --- 1. ANALYTICS ENGINE ---
 def analyze(prices, peg):
     if not prices: return None
     valid = sorted([p for p in prices if 50 < p < 400])
@@ -60,29 +60,28 @@ def analyze(prices, peg):
         "raw_data": adj, "count": n
     }
 
-# --- 2. WEB GENERATOR (Table + Cards) ---
+# --- 2. WEB GENERATOR (Animated Cyberpunk Theme) ---
 def update_website_html(stats, official, timestamp, all_data_sources, peg):
-    """ Generates Cyberpunk HTML with Data Table """
+    """ Generates animated HTML with fixed-layout graph """
     prem = ((stats['median'] - official)/official)*100 if official else 0
     
-    # Generate Table Rows
     table_rows = ""
     for source, prices in all_data_sources.items():
         s = analyze(prices, peg)
         if s:
             table_rows += f"""
             <tr>
-                <td style="color: #fff; font-weight: bold;">{source}</td>
+                <td style="font-weight: bold; color: #fff;">{source}</td>
                 <td>{s['min']:.2f}</td>
                 <td>{s['q1']:.2f}</td>
-                <td style="color: #ff0055; font-weight: bold;">{s['median']:.2f}</td>
+                <td style="color: #ff0055; font-weight: bold; font-size: 1.1em;">{s['median']:.2f}</td>
                 <td>{s['q3']:.2f}</td>
                 <td>{s['max']:.2f}</td>
                 <td>{s['count']}</td>
             </tr>
             """
         else:
-            table_rows += f"<tr><td>{source}</td><td colspan='6'>No Data</td></tr>"
+            table_rows += f"<tr><td>{source}</td><td colspan='6' style='color: #666;'>No Data</td></tr>"
 
     html_content = f"""
     <!DOCTYPE html>
@@ -93,52 +92,62 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
         <meta http-equiv="refresh" content="300">
         <title>ETB Pro Terminal</title>
         <style>
-            body {{ background-color: #050505; color: #00ff9d; font-family: 'Courier New', monospace; text-align: center; padding: 20px; margin: 0; }}
-            .container {{ max-width: 1100px; margin: 0 auto; }}
-            
-            /* Header */
-            h1 {{ text-shadow: 0 0 15px #00ff9d; font-size: 2.2rem; margin-bottom: 5px; letter-spacing: 2px; }}
-            .subtext {{ color: #666; font-size: 0.8rem; margin-bottom: 30px; }}
+            /* --- ANIMATIONS --- */
+            @keyframes fadeInUp {{ from {{ opacity: 0; transform: translateY(30px); }} to {{ opacity: 1; transform: translateY(0); }} }}
+            @keyframes pulseGlow {{ 0% {{ text-shadow: 0 0 20px rgba(255, 0, 85, 0.5); }} 50% {{ text-shadow: 0 0 40px rgba(255, 0, 85, 0.8), 0 0 80px rgba(255, 0, 85, 0.6); }} 100% {{ text-shadow: 0 0 20px rgba(255, 0, 85, 0.5); }} }}
+            @keyframes borderPulse {{ 0% {{ border-color: #333; box-shadow: 0 0 25px rgba(0, 255, 157, 0.05); }} 50% {{ border-color: #00ff9d; box-shadow: 0 0 35px rgba(0, 255, 157, 0.2); }} 100% {{ border-color: #333; box-shadow: 0 0 25px rgba(0, 255, 157, 0.05); }} }}
 
-            /* Big Ticker Card */
+            /* --- BASE STYLES --- */
+            body {{ background-color: #030303; color: #00ff9d; font-family: 'Courier New', monospace; text-align: center; padding: 20px; margin: 0; overflow-x: hidden; }}
+            .container {{ max-width: 1100px; margin: 0 auto; animation: fadeInUp 0.8s ease-out; }}
+            
+            h1 {{ text-shadow: 0 0 15px #00ff9d; font-size: 2.5rem; margin-bottom: 5px; letter-spacing: 2px; text-transform: uppercase; }}
+            .subtext {{ color: #666; font-size: 0.8rem; margin-bottom: 40px; letter-spacing: 4px; }}
+
+            /* --- TICKER CARD --- */
             .ticker-card {{ 
-                background: linear-gradient(145deg, #111, #0a0a0a); 
+                background: linear-gradient(145deg, #0a0a0a, #000); 
                 border: 1px solid #333; 
-                padding: 20px; 
-                border-radius: 12px; 
+                padding: 30px; 
+                border-radius: 15px; 
                 box-shadow: 0 0 25px rgba(0, 255, 157, 0.05);
-                margin-bottom: 30px;
+                margin-bottom: 40px;
                 position: relative;
                 overflow: hidden;
+                animation: borderPulse 4s infinite, fadeInUp 1s ease-out;
             }}
-            .ticker-card::before {{ content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 4px; background: #ff0055; }}
+            .ticker-card::before {{ content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: linear-gradient(90deg, #00ff9d, #ff0055, #00ff9d); animation: slide 3s linear infinite; background-size: 200% auto; }}
+            @keyframes slide {{ to {{ background-position: 200% center; }} }}
             
-            .price {{ font-size: 4rem; font-weight: bold; color: #fff; text-shadow: 0 0 20px rgba(255, 0, 85, 0.5); margin: 10px 0; }}
-            .unit {{ font-size: 1.5rem; color: #666; }}
-            .label {{ color: #888; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 3px; }}
-            .premium {{ background: #222; color: #ffcc00; padding: 5px 15px; border-radius: 20px; font-size: 1rem; display: inline-block; border: 1px solid #444; }}
+            .price {{ font-size: 4.5rem; font-weight: bold; color: #fff; animation: pulseGlow 2s infinite; margin: 15px 0; }}
+            .unit {{ font-size: 1.5rem; color: #888; font-weight: normal; }}
+            .label {{ color: #00ff9d; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 3px; font-weight: bold; }}
+            .premium {{ background: rgba(255, 204, 0, 0.1); color: #ffcc00; padding: 8px 20px; border-radius: 30px; font-size: 1.1rem; display: inline-block; border: 1px solid #ffcc00; text-shadow: 0 0 10px rgba(255, 204, 0, 0.5); }}
 
-            /* Graph */
-            .chart-container img {{ width: 100%; border: 1px solid #333; border-radius: 12px; opacity: 0.9; transition: opacity 0.3s; }}
-            .chart-container img:hover {{ opacity: 1; }}
+            /* --- GRAPH --- */
+            .chart-container {{ margin-bottom: 40px; animation: fadeInUp 1s ease-out 0.3s backwards; }}
+            .chart-container img {{ width: 100%; border: 1px solid #222; border-radius: 15px; box-shadow: 0 0 20px rgba(0, 255, 157, 0.1); transition: all 0.3s; }}
+            .chart-container img:hover {{ border-color: #00ff9d; box-shadow: 0 0 40px rgba(0, 255, 157, 0.3); transform: scale(1.01); }}
 
-            /* Data Table */
-            .data-table {{ width: 100%; margin-top: 30px; border-collapse: collapse; background: #111; border-radius: 8px; overflow: hidden; }}
-            .data-table th {{ background: #1a1a1a; color: #888; padding: 12px; font-size: 0.8rem; text-transform: uppercase; border-bottom: 2px solid #333; }}
-            .data-table td {{ padding: 12px; border-bottom: 1px solid #222; color: #ccc; font-size: 0.9rem; }}
-            .data-table tr:hover {{ background: #161616; }}
+            /* --- DATA TABLE --- */
+            .table-container {{ animation: fadeInUp 1s ease-out 0.6s backwards; }}
+            .data-table {{ width: 100%; border-collapse: separate; border-spacing: 0; background: #080808; border-radius: 12px; overflow: hidden; border: 1px solid #222; }}
+            .data-table th {{ background: #111; color: #00ff9d; padding: 15px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; border-bottom: 2px solid #333; }}
+            .data-table td {{ padding: 15px; border-bottom: 1px solid #1a1a1a; color: #ccc; font-size: 0.95rem; transition: all 0.2s; }}
+            .data-table tr:hover td {{ background: rgba(0, 255, 157, 0.05); color: #fff; border-bottom-color: #00ff9d; }}
+            .data-table tr:last-child td {{ border-bottom: none; }}
+
+            /* --- BANK RATE & FOOTER --- */
+            .bank-card {{ margin-top: 40px; padding-top: 20px; border-top: 1px solid #222; animation: fadeInUp 1s ease-out 0.9s backwards; }}
+            .bank-rate {{ color: #00bfff; font-size: 1.8rem; font-weight: bold; text-shadow: 0 0 10px rgba(0, 191, 255, 0.5); margin-top: 10px; }}
             
-            /* Bank Rate Footer */
-            .bank-card {{ margin-top: 30px; border-top: 1px solid #333; padding-top: 20px; }}
-            .bank-rate {{ color: #00bfff; font-size: 1.5rem; font-weight: bold; }}
-            
-            footer {{ margin-top: 40px; color: #444; font-size: 0.7rem; }}
+            footer {{ margin-top: 50px; color: #444; font-size: 0.75rem; letter-spacing: 1px; animation: fadeInUp 1s ease-out 1.2s backwards; }}
         </style>
     </head>
     <body>
         <div class="container">
             <h1>ETB MARKET INTELLIGENCE</h1>
-            <div class="subtext">LIVE P2P LIQUIDITY SCANNER</div>
+            <div class="subtext">/// LIVE P2P LIQUIDITY SCANNER ///</div>
 
             <div class="ticker-card">
                 <div class="label">True USD Street Rate</div>
@@ -150,30 +159,32 @@ def update_website_html(stats, official, timestamp, all_data_sources, peg):
                 <img src="{GRAPH_FILENAME}" alt="Market Analysis Chart">
             </div>
 
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Source</th>
-                        <th>Min</th>
-                        <th>Q1 (Low)</th>
-                        <th>Median</th>
-                        <th>Q3 (High)</th>
-                        <th>Max</th>
-                        <th>Ads</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {table_rows}
-                </tbody>
-            </table>
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Source</th>
+                            <th>Min</th>
+                            <th>Q1 (Low)</th>
+                            <th>Median</th>
+                            <th>Q3 (High)</th>
+                            <th>Max</th>
+                            <th>Ads</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {table_rows}
+                    </tbody>
+                </table>
+            </div>
 
             <div class="bank-card">
-                <div class="label">Official Bank Rate</div>
+                <div class="label">Official Bank Rate (Ref)</div>
                 <div class="bank-rate">{official:.2f} ETB</div>
             </div>
 
             <footer>
-                LAST UPDATED: {timestamp} UTC | SOURCE: Binance, Bybit, MEXC
+                SYSTEM UPDATE: {timestamp} UTC | SOURCE PROTOCOLS: BINANCE, BYBIT, MEXC
             </footer>
         </div>
     </body>
@@ -271,7 +282,7 @@ def load_history():
             except: pass
     return d, m, q1, q3, off
 
-# --- 5. VISUALIZATION ---
+# --- 5. VISUALIZATION (Fixed Overlaps) ---
 def generate_dashboard(stats, official_rate):
     if not GRAPH_ENABLED: return
     print(f"📊 Rendering Dashboard...", file=sys.stderr)
@@ -291,10 +302,13 @@ def generate_dashboard(stats, official_rate):
     ax1.axvline(stats['q1'], color='#00bfff', linewidth=1.5, linestyle='--', alpha=0.7)
     ax1.axvline(stats['q3'], color='#00bfff', linewidth=1.5, linestyle='--', alpha=0.7)
     
-    # Annotations
-    ax1.text(stats['median'], 1.35, f"MEDIAN\n{stats['median']:.2f}", color='#ff0055', ha='center', fontweight='bold', fontsize=12)
-    ax1.text(stats['q1'], 0.6, f"Q1\n{stats['q1']:.2f}", color='#00bfff', ha='center', fontsize=9)
-    ax1.text(stats['q3'], 0.6, f"Q3\n{stats['q3']:.2f}", color='#00bfff', ha='center', fontsize=9)
+    # Annotations - FIXED OVERLAP
+    # Median (Top Center)
+    ax1.text(stats['median'], 1.42, f"MEDIAN\n{stats['median']:.2f}", color='#ff0055', ha='center', va='bottom', fontweight='bold', fontsize=12)
+    # Q1 (Bottom Left, pushed left)
+    ax1.text(stats['q1'], 0.58, f"Q1 (Low)\n{stats['q1']:.2f}", color='#00bfff', ha='right', va='top', fontsize=9)
+    # Q3 (Bottom Right, pushed right)
+    ax1.text(stats['q3'], 0.58, f"Q3 (High)\n{stats['q3']:.2f}", color='#00bfff', ha='left', va='top', fontsize=9)
 
     if official_rate:
         ax1.axvline(official_rate, color='white', linestyle=':', linewidth=1)
@@ -333,7 +347,7 @@ def generate_dashboard(stats, official_rate):
 
 # --- 6. MAIN EXECUTION ---
 def main():
-    print("🔍 Initializing ETB Pro Terminal...", file=sys.stderr)
+    print("🔍 Initializing ETB Cyberpunk Terminal...", file=sys.stderr)
     
     with ThreadPoolExecutor(max_workers=10) as ex:
         f_bin = ex.submit(lambda: fetch_binance("BUY") + fetch_binance("SELL"))
@@ -346,7 +360,7 @@ def main():
         official = f_off.result()
         peg = f_peg.result()
 
-    # Aggregate Data (Binance + MEXC for Visuals)
+    # Aggregate Data
     visual_prices = data["Binance"] + data["MEXC"]
     visual_stats = analyze(visual_prices, peg)
     
@@ -354,10 +368,9 @@ def main():
     if visual_stats: 
         save_to_history(visual_stats, official)
         generate_dashboard(visual_stats, official)
-        # Pass ALL data to the web generator to build the table
+        # Pass ALL data to the web generator
         update_website_html(visual_stats, official, time.strftime('%Y-%m-%d %H:%M:%S'), data, peg)
 
-    # Console Output (Optional, since we have the web now)
     print("\n" + "="*80)
     print(f"✅ Auto-Update Complete: {time.strftime('%H:%M:%S')}")
     print("="*80 + "\n")
