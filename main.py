@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v33.1 (Inventory Tracking - Extended Window Hotfix)
-- PROVEN: Uses v30.2's inventory tracking (available amount drops)
-- EXTENDED: 90-second window instead of 30s (catches more trades!)
-- LIMITED: 200 ads per source (faster collection)
-- AUTO-FILTER: Removes bottom 10% outliers
-- REAL: No simulation, only actual inventory drops
+🇪🇹 ETB Financial Terminal v33.2 (FIXED Comparison)
+- FIXED: Compares snapshot_2 vs snapshot_1 (in-memory, not stale file!)
+- SENSITIVE: 1 USDT minimum (catches ALL trades)
+- WINDOW: 1-hour rolling history
+- FALLBACK: Shows Best Live Offers if no trades
 """
 
 import requests
@@ -32,18 +31,21 @@ except ImportError:
 # --- CONFIGURATION ---
 P2P_ARMY_KEY = "YJU5RCZ2-P6VTVNNA"
 HISTORY_FILE = "etb_history.csv"
-SNAPSHOT_FILE = "market_state.json"
+TRADES_FILE = "recent_trades.json"
 GRAPH_FILENAME = "etb_neon_terminal.png"
 GRAPH_LIGHT_FILENAME = "etb_light_terminal.png"
 HTML_FILENAME = "index.html"
 
-# ✅ EXTENDED: 90 seconds gives more time for real P2P trades
-BURST_WAIT_TIME = 90
+# 60-second window per run
+BURST_WAIT_TIME = 60
+
+# Show trades from last 1 HOUR
+TRADE_RETENTION_MINUTES = 60
 
 # Limit to 200 most recent ads per source
 MAX_ADS_PER_SOURCE = 200
 
-HISTORY_POINTS = 288  # 24 hours at 5-min intervals
+HISTORY_POINTS = 288
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -51,7 +53,7 @@ HEADERS = {
     "Accept": "application/json"
 }
 
-# --- 1. FETCHERS (LIMITED TO 200) ---
+# --- 1. FETCHERS ---
 def fetch_official_rate():
     try:
         return float(requests.get("https://open.er-api.com/v6/latest/USD", timeout=5).json()["rates"]["ETB"])
@@ -65,7 +67,6 @@ def fetch_usdt_peg():
         return 1.00
 
 def fetch_binance_direct(trade_type):
-    """Fetch top 200 Binance ads"""
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     ads = []
     page = 1
@@ -100,7 +101,6 @@ def fetch_binance_direct(trade_type):
     return ads[:MAX_ADS_PER_SOURCE]
 
 def fetch_bybit(side):
-    """Fetch top 200 Bybit ads"""
     url = "https://api2.bybit.com/fiat/otc/item/online"
     ads = []
     page = 1
@@ -134,7 +134,6 @@ def fetch_bybit(side):
     return ads[:MAX_ADS_PER_SOURCE]
 
 def fetch_p2p_army_ads(market, side):
-    """Fetch top 200 ads via P2P.Army API"""
     url = "https://p2p.army/v1/api/get_p2p_order_book"
     h = HEADERS.copy()
     h["X-APIKEY"] = P2P_ARMY_KEY
@@ -146,7 +145,6 @@ def fetch_p2p_army_ads(market, side):
         }, timeout=10)
         data = r.json()
         
-        # v16.0's proven parsing
         raw = data.get("result", data.get("data", data.get("ads", [])))
         if not raw and isinstance(data, list):
             raw = data
@@ -172,9 +170,8 @@ def fetch_p2p_army_ads(market, side):
         print(f"   {market} error: {e}", file=sys.stderr)
         return []
 
-# --- 2. INVENTORY TRACKING (v30.2 METHOD) ---
+# --- 2. INVENTORY TRACKING ---
 def capture_market_snapshot():
-    """Gets top 200 ads from each source"""
     with ThreadPoolExecutor(max_workers=10) as ex:
         f_bin = ex.submit(lambda: fetch_p2p_army_ads("binance", "SELL"))
         f_mexc = ex.submit(lambda: fetch_p2p_army_ads("mexc", "SELL"))
@@ -193,7 +190,6 @@ def capture_market_snapshot():
         return bin_data + bybit_data + mexc_data
 
 def remove_outliers(ads, peg):
-    """Auto-remove bottom 10% of prices"""
     if len(ads) < 10:
         return ads
     
@@ -208,39 +204,30 @@ def remove_outliers(ads, peg):
     
     return filtered
 
-def load_market_state():
-    if os.path.exists(SNAPSHOT_FILE):
-        try:
-            with open(SNAPSHOT_FILE, "r") as f:
-                return json.load(f)
-        except:
-            return {}
-    return {}
-
-def save_market_state(current_ads):
+def build_state_dict(ads):
+    """Convert ad list to state dict for comparison"""
     state = {}
-    for ad in current_ads:
-        # Use advertiser + price as key (more stable than ad ID)
+    for ad in ads:
         key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
         state[key] = ad["available"]
-    
-    with open(SNAPSHOT_FILE, "w") as f:
-        json.dump(state, f)
+    return state
 
-def detect_real_trades(current_ads, peg):
+def detect_real_trades(snapshot_before, snapshot_after, peg):
     """
-    ✅ v30.2 METHOD: Track inventory drops
-    If seller had 1000 USDT and now has 750 USDT → SOLD 250 USDT
+    ✅ FIXED: Compares snapshot_after vs snapshot_before (in-memory!)
+    Not comparing to stale file anymore!
     """
-    prev_state = load_market_state()
+    if not snapshot_before:
+        print("   > No baseline snapshot to compare", file=sys.stderr)
+        return []
+    
+    prev_state = build_state_dict(snapshot_before)
+    curr_state = build_state_dict(snapshot_after)
+    
     trades = []
     
-    if not prev_state:
-        print("   > First run - establishing baseline", file=sys.stderr)
-        return trades
-    
-    for ad in current_ads:
-        # Only track Binance and MEXC (Bybit unreliable)
+    for ad in snapshot_after:
+        # Only track Binance and MEXC
         if ad["source"].lower() not in ["binance", "mexc"]:
             continue
         
@@ -250,24 +237,52 @@ def detect_real_trades(current_ads, peg):
             prev_inventory = prev_state[key]
             curr_inventory = ad["available"]
             
-            # Inventory Drop = Confirmed Trade!
+            # Inventory Drop = Trade!
             if curr_inventory < prev_inventory:
                 diff = prev_inventory - curr_inventory
                 
-                # Only report significant trades (>100 USDT)
-                if diff > 100:
+                # ✅ CATCH EVERYTHING (1 USDT minimum)
+                if diff >= 1:
                     trades.append({
                         "type": "trade",
                         "source": ad["source"],
                         "user": ad["advertiser"],
                         "price": ad["price"] / peg,
                         "vol_usd": diff,
-                        "timestamp": datetime.datetime.now().isoformat()
+                        "timestamp": time.time()
                     })
                     print(f"   ✅ TRADE: {ad['source']} - {ad['advertiser'][:15]} sold {diff:,.0f} USDT @ {ad['price']/peg:.2f} ETB", file=sys.stderr)
     
     print(f"   > Detected {len(trades)} trades in {BURST_WAIT_TIME}s window", file=sys.stderr)
     return trades
+
+def load_recent_trades():
+    if not os.path.exists(TRADES_FILE):
+        return []
+    
+    try:
+        with open(TRADES_FILE, "r") as f:
+            all_trades = json.load(f)
+        
+        cutoff = time.time() - (TRADE_RETENTION_MINUTES * 60)
+        recent = [t for t in all_trades if t.get("timestamp", 0) > cutoff]
+        
+        print(f"   > Loaded {len(recent)} trades from last {TRADE_RETENTION_MINUTES} minutes", file=sys.stderr)
+        return recent
+    except:
+        return []
+
+def save_trades(new_trades):
+    recent = load_recent_trades()
+    all_trades = recent + new_trades
+    
+    cutoff = time.time() - (TRADE_RETENTION_MINUTES * 60)
+    filtered = [t for t in all_trades if t.get("timestamp", 0) > cutoff]
+    
+    with open(TRADES_FILE, "w") as f:
+        json.dump(filtered, f)
+    
+    print(f"   > Saved {len(filtered)} trades to history (last hour)", file=sys.stderr)
 
 # --- 3. ANALYTICS ---
 def analyze(prices, peg):
@@ -382,7 +397,7 @@ def generate_charts(stats, official_rate):
         ax1.set_xlim([stats["p05"] - margin, stats["p95"] + margin])
         ax1.set_ylim(0.5, 1.5)
         ax1.set_yticks([])
-        ax1.set_title("Live Market Depth (Top 200 ads, auto-filtered)", color=style["fg"], loc="left", pad=10)
+        ax1.set_title("Live Market Depth (Top 200 ads)", color=style["fg"], loc="left", pad=10)
         ax1.grid(True, axis="x", color=style["grid"], linestyle="--")
         
         ax2 = fig.add_subplot(2, 1, 2)
@@ -402,7 +417,7 @@ def generate_charts(stats, official_rate):
         plt.close()
 
 # --- 6. WEB GENERATOR ---
-def update_website_html(stats, official, timestamp, trades, grouped_ads, peg):
+def update_website_html(stats, official, timestamp, current_ads, grouped_ads, peg):
     prem = ((stats["median"] - official) / official) * 100 if official else 0
     cache_buster = int(time.time())
     
@@ -416,13 +431,20 @@ def update_website_html(stats, official, timestamp, trades, grouped_ads, peg):
         else:
             table_rows += f"<tr><td>{source}</td><td colspan='6' style='opacity:0.5'>No Data</td></tr>"
     
-    # Trade Feed
+    # Feed
     feed_html = ""
+    recent_trades = load_recent_trades()
     
-    if trades:
-        for trade in trades[:30]:
-            ts = datetime.datetime.fromisoformat(trade["timestamp"])
+    if recent_trades:
+        recent_trades.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+        
+        feed_html = f"<div style='color:#2ea043;font-size:0.9rem;margin-bottom:10px;'>✅ {len(recent_trades)} trades in last hour</div>"
+        
+        for trade in recent_trades[:30]:
+            ts = datetime.datetime.fromtimestamp(trade.get("timestamp", time.time()))
             time_str = ts.strftime("%I:%M:%S %p")
+            age_seconds = time.time() - trade.get("timestamp", time.time())
+            age_str = f"{int(age_seconds/60)}min ago" if age_seconds >= 60 else f"{int(age_seconds)}s ago"
             
             source = trade["source"]
             s_col = "#f3ba2f" if "Binance" in source else "#2e55e6"
@@ -432,7 +454,7 @@ def update_website_html(stats, official, timestamp, trades, grouped_ads, peg):
             <div class="feed-item">
                 <div class="feed-icon" style="background:#2ea043">{icon}</div>
                 <div class="feed-content">
-                    <span class="feed-ts">{time_str}</span> → 
+                    <span class="feed-ts">{time_str}</span> <span style="color:#666">({age_str})</span> → 
                     <span class="feed-source" style="color:{s_col};font-weight:bold">{source}</span>: 
                     <span class="feed-user">{trade['user'][:15]}</span> 
                     <b style="color:#2ea043">SOLD</b> 
@@ -441,7 +463,27 @@ def update_website_html(stats, official, timestamp, trades, grouped_ads, peg):
                 </div>
             </div>"""
     else:
-        feed_html = f"<div class='feed-item' style='color:#888'>⏳ No trades detected in {BURST_WAIT_TIME}s window. First run or market quiet.</div>"
+        # Fallback: Show Best Live Offers
+        all_offers = [ad for ad in current_ads if ad["source"].lower() in ["binance", "mexc"] and ad["available"] > 10]
+        all_offers.sort(key=lambda x: x["price"] / peg)
+        
+        feed_html = "<div style='color:#ffcc00;font-size:0.9rem;margin-bottom:10px;'>💡 No trades yet - Showing Best Live Offers (Lowest Prices)</div>"
+        
+        for offer in all_offers[:30]:
+            source = offer["source"]
+            s_col = "#f3ba2f" if "Binance" in source else "#2e55e6"
+            icon = "🟡" if "Binance" in source else "🔵"
+            
+            feed_html += f"""
+            <div class="feed-item">
+                <div class="feed-icon" style="background:{s_col}">{icon}</div>
+                <div class="feed-content">
+                    <span class="feed-source" style="color:{s_col};font-weight:bold">{source}</span>: 
+                    <span class="feed-user">{offer['advertiser'][:15]}</span> 
+                    offering <span class="feed-vol">{offer['available']:,.0f} USDT</span> 
+                    @ <span class="feed-price">{offer['price']/peg:.2f} ETB</span>
+                </div>
+            </div>"""
     
     html = f"""
     <!DOCTYPE html>
@@ -451,7 +493,7 @@ def update_website_html(stats, official, timestamp, trades, grouped_ads, peg):
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market Watch v33.1</title>
+        <title>ETB Market Watch v33.2</title>
         <style>
             :root {{ --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }}
             [data-theme="light"] {{ --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; }}
@@ -494,7 +536,7 @@ def update_website_html(stats, official, timestamp, trades, grouped_ads, peg):
         <div class="container">
             <header>
                 <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// INVENTORY TRACKING (90s window) ///</div>
+                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// REAL-TIME TRACKING (60s window, 1hr history) ///</div>
                 <div class="toggle" onclick="toggleTheme()">🌓 Theme</div>
             </header>
 
@@ -524,7 +566,7 @@ def update_website_html(stats, official, timestamp, trades, grouped_ads, peg):
 
             <footer>
                 Official: {official:.2f} ETB | Last Update: {timestamp} UTC | 
-                Top 200 ads per source, 90s monitoring window
+                60s monitoring per run, 1hr rolling history
             </footer>
         </div>
 
@@ -554,26 +596,22 @@ def update_website_html(stats, official, timestamp, trades, grouped_ads, peg):
     with open(HTML_FILENAME, "w") as f:
         f.write(html)
 
-# --- 7. MAIN (v30.2 BURST SCAN METHOD, FIXED BASELINE) ---
+# --- 7. MAIN (FIXED!) ---
 def main():
-    print("🔍 Running v33.1 (Inventory Tracking - Extended)...", file=sys.stderr)
+    print("🔍 Running v33.2 (FIXED Comparison)...", file=sys.stderr)
     
-    # Use ONE peg for the whole run
     peg = fetch_usdt_peg() or 1.0
     
-    # 1. SNAPSHOT 1  (baseline)
+    # 1. SNAPSHOT 1
     print("   > Snapshot 1/2...", file=sys.stderr)
     snapshot_1 = capture_market_snapshot()
     snapshot_1 = remove_outliers(snapshot_1, peg)
     
-    # Save baseline so detect_real_trades() can compare against it
-    save_market_state(snapshot_1)
-    
-    # 2. WAIT (Extended to 90 seconds)
+    # 2. WAIT
     print(f"   > ⏳ Waiting {BURST_WAIT_TIME}s to catch trades...", file=sys.stderr)
     time.sleep(BURST_WAIT_TIME)
     
-    # 3. SNAPSHOT 2  (after 90s)
+    # 3. SNAPSHOT 2
     print("   > Snapshot 2/2...", file=sys.stderr)
     snapshot_2 = capture_market_snapshot()
     snapshot_2 = remove_outliers(snapshot_2, peg)
@@ -587,13 +625,14 @@ def main():
             grouped_ads[ad["source"]].append(ad)
     
     if snapshot_2:
-        # Detect trades via inventory tracking (between snapshot_1 and snapshot_2)
-        trades = detect_real_trades(snapshot_2, peg)
+        # ✅ FIXED: Compare snapshot_2 to snapshot_1 (in-memory!)
+        new_trades = detect_real_trades(snapshot_1, snapshot_2, peg)
         
-        # Save new state for the NEXT run
-        save_market_state(snapshot_2)
+        # Save trades to persistent history
+        if new_trades:
+            save_trades(new_trades)
         
-        # Stats (exclude Bybit from history)
+        # Stats (exclude Bybit)
         stats_prices = [ad["price"] for ad in snapshot_2 if ad["source"] != "Bybit"]
         stats = analyze(stats_prices, peg)
         
@@ -603,14 +642,14 @@ def main():
             update_website_html(
                 stats, official,
                 time.strftime("%Y-%m-%d %H:%M:%S"),
-                trades, grouped_ads, peg
+                snapshot_2, grouped_ads, peg
             )
         else:
             print("⚠️ Could not compute stats", file=sys.stderr)
     else:
         print("⚠️ No ads found", file=sys.stderr)
     
-    print(f"✅ Complete. Total runtime: ~{BURST_WAIT_TIME + 30}s")
+    print(f"✅ Complete! Detected {len(new_trades) if 'new_trades' in locals() else 0} trades this run.")
 
 if __name__ == "__main__":
     main()
