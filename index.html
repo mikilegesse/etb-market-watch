@@ -6,7 +6,7 @@
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market Watch v31</title>
+        <title>ETB Market Watch v32</title>
         <style>
             :root { --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }
             [data-theme="light"] { --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; }
@@ -37,7 +37,7 @@
             .feed-item { display: flex; gap: 12px; padding: 10px; border-bottom: 1px solid var(--border); align-items: center; }
             .feed-icon { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; color: #fff; }
             .feed-content { font-size: 0.85rem; color: var(--sub); }
-            .feed-ts { color: var(--mute); font-family: monospace; }
+            .feed-ts { color: var(--mute); font-family: monospace; font-size: 0.75rem; }
             .feed-user, .feed-price { font-weight: bold; color: var(--text); }
             .feed-vol { font-weight: bold; color: var(--link); }
             
@@ -49,43 +49,43 @@
         <div class="container">
             <header>
                 <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// CONTINUOUS MONITOR (16 checks x 15s) ///</div>
+                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// RECENT MARKET ACTIONS (top 200 ads) ///</div>
                 <div class="toggle" onclick="toggleTheme()">🌓 Theme</div>
             </header>
 
             <div class="left-col">
                 <div class="card ticker">
                     <div style="color:var(--mute); font-size:0.8rem; letter-spacing:2px;">TRUE USD MEDIAN</div>
-                    <div class="price">172.78 <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
-                    <span class="prem">Black Market Premium: +12.72%</span>
+                    <div class="price">176.35 <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
+                    <span class="prem">Black Market Premium: +15.05%</span>
                 </div>
                 <div class="card chart">
-                    <img src="etb_neon_terminal.png?v=1764010806" id="chartImg" alt="Market Chart">
+                    <img src="etb_neon_terminal.png?v=1764011107" id="chartImg" alt="Market Chart">
                 </div>
                 <div class="card">
                     <table>
                         <thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead>
-                        <tbody><tr><td class='source-col'>Binance</td><td>145.10</td><td>160.67</td><td class='med-col'>172.20</td><td>174.66</td><td>176.36</td><td>733</td></tr><tr><td class='source-col'>Bybit</td><td>167.69</td><td>167.79</td><td class='med-col'>167.90</td><td>168.01</td><td>168.12</td><td>2</td></tr><tr><td class='source-col'>MEXC</td><td>146.29</td><td>173.55</td><td class='med-col'>178.06</td><td>182.09</td><td>183.07</td><td>55</td></tr></tbody>
+                        <tbody><tr><td class='source-col'>Binance</td><td>174.67</td><td>175.57</td><td class='med-col'>176.33</td><td>176.35</td><td>176.36</td><td>168</td></tr><tr><td>Bybit</td><td colspan='6' style='opacity:0.5'>No Data</td></tr><tr><td class='source-col'>MEXC</td><td>175.06</td><td>178.05</td><td class='med-col'>181.10</td><td>182.40</td><td>183.06</td><td>37</td></tr></tbody>
                     </table>
                 </div>
             </div>
 
             <div class="right-col">
                 <div class="card">
-                    <div class="feed-title">🟡 Binance | 🔵 MEXC | Real Trades (This Run)</div>
-                    <div class="feed-container"><div class='feed-item' style='color:#888'>⏳ No trades detected during 4-minute monitoring window. Market was quiet.</div></div>
+                    <div class="feed-title">👀 Recent Market Actions</div>
+                    <div class="feed-container"><div class='feed-item' style='color:#888'>⏳ No market actions detected during monitoring window.</div></div>
                 </div>
             </div>
 
             <footer>
-                Official: 153.28 ETB | Last Update: 2025-11-24 19:00:06 UTC | 
-                Auto-filtered (removed bottom 10% outliers)
+                Official: 153.28 ETB | Last Update: 2025-11-24 19:05:07 UTC | 
+                Showing top 200 ads per source
             </footer>
         </div>
 
         <script>
-            const imgDark = "etb_neon_terminal.png?v=1764010806";
-            const imgLight = "etb_light_terminal.png?v=1764010806";
+            const imgDark = "etb_neon_terminal.png?v=1764011107";
+            const imgLight = "etb_light_terminal.png?v=1764011107";
             const html = document.documentElement;
             
             (function() {
