@@ -4,7 +4,7 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta http-equiv="refresh" content="60">
+        <meta http-equiv="refresh" content="300">
         <title>ETB Pro Terminal</title>
         <style>
             :root {
@@ -43,9 +43,9 @@
             .feed-container::-webkit-scrollbar-thumb { background: var(--border); }
 
             .feed-item { display: flex; gap: 12px; padding: 12px 10px; border-bottom: 1px solid #222; align-items: flex-start; font-family: sans-serif; background: #0e0e0e; margin-bottom: 2px; }
-            .feed-icon { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
+            .feed-icon { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; color: white; }
             .feed-content { font-size: 0.85rem; color: #ccc; line-height: 1.5; margin-top: 2px; }
-            .feed-ts { color: #00ff9d; font-family: monospace; font-weight:bold; }
+            .feed-ts { color: #666; font-family: monospace; }
             .feed-user { font-weight: bold; color: #fff; }
             .feed-vol { font-weight: bold; color: #fff; }
             .feed-price { font-weight: bold; color: #fff; }
@@ -59,249 +59,194 @@
         <div class="container">
             <header>
                 <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// LIVE P2P ORDER BOOK SCANNER ///</div>
+                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// LIVE P2P LIQUIDITY SCANNER ///</div>
             </header>
 
             <div class="left-col">
                 <div class="card ticker">
                     <div style="color:var(--mute); font-size:0.8rem; letter-spacing:2px;">TRUE USD MEDIAN</div>
-                    <div class="price">176.37 <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
-                    <span class="prem">Premium: +15.07%</span>
+                    <div class="price">176.35 <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
+                    <span class="prem">Premium: +15.06%</span>
                 </div>
 
                 <div class="card chart">
-                    <img src="etb_neon_terminal.png?v=1763962985" alt="Market Chart">
+                    <img src="etb_neon_terminal.png?v=1763965378" alt="Market Chart">
                 </div>
 
                 <div class="card">
                     <table>
                         <thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead>
-                        <tbody><tr><td style='font-weight:bold;color:#ccc'>Binance</td><td>176.20</td><td>176.37</td><td style='color:#ff0055;font-weight:bold'>176.37</td><td>176.37</td><td>176.38</td><td>100</td></tr><tr><td style='font-weight:bold;color:#ccc'>Bybit</td><td>167.71</td><td>167.81</td><td style='color:#ff0055;font-weight:bold'>167.92</td><td>168.03</td><td>168.14</td><td>2</td></tr><tr><td style='font-weight:bold;color:#ccc'>MEXC</td><td>90.04</td><td>155.06</td><td style='color:#ff0055;font-weight:bold'>176.08</td><td>182.29</td><td>183.10</td><td>39</td></tr></tbody>
+                        <tbody><tr><td style='font-weight:bold;color:#ccc'>Binance</td><td>176.18</td><td>176.35</td><td style='color:#ff0055;font-weight:bold'>176.35</td><td>176.35</td><td>176.36</td><td>100</td></tr><tr><td style='font-weight:bold;color:#ccc'>Bybit</td><td>130.09</td><td>144.90</td><td style='color:#ff0055;font-weight:bold'>155.65</td><td>168.14</td><td>169.54</td><td>47</td></tr><tr><td style='font-weight:bold;color:#ccc'>MEXC</td><td>90.03</td><td>163.05</td><td style='color:#ff0055;font-weight:bold'>177.85</td><td>182.30</td><td>182.68</td><td>37</td></tr></tbody>
                     </table>
                 </div>
             </div>
 
             <div class="right-col">
                 <div class="card">
-                    <div class="feed-title">📢 Real-Time Order Stream (Best Offers)</div>
+                    <div class="feed-title">👀 Recent Market Actions</div>
                     <div class="feed-container">
                         
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #1</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">90.00 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:13:49 AM</span> -> 
+                    <span class="feed-user">Hayme***</span> (BUYER) bought 
+                    <span class="feed-vol">27,351.39 USD</span> at 
+                    <span class="feed-price">176.35 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #2</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">123.77 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:21:37 AM</span> -> 
+                    <span class="feed-user">Tinsa***</span> (BUYER) bought 
+                    <span class="feed-vol">47,793.52 USD</span> at 
+                    <span class="feed-price">167.55 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-icon" style="background-color: #d29922;">❓</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #3</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">123.77 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:22:13 AM</span> -> 
+                    <span class="feed-user">Real_***</span> (BUYER) requested 
+                    <span class="feed-vol">24,074.59 USD</span> at 
+                    <span class="feed-price">176.35 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-icon" style="background-color: #2ea043;">🤑</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #4</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">130.00 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:21:18 AM</span> -> 
+                    <span class="feed-user">Trust***</span> (BUYER) bought remaining 
+                    <span class="feed-vol">31,430.26 USD</span> at 
+                    <span class="feed-price">176.35 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #5</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">131.51 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:17:15 AM</span> -> 
+                    <span class="feed-user">Hayme***</span> (BUYER) bought 
+                    <span class="feed-vol">3,269.80 USD</span> at 
+                    <span class="feed-price">182.67 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-icon" style="background-color: #d29922;">❓</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #6</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">139.24 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:13:35 AM</span> -> 
+                    <span class="feed-user">Sayid***</span> (BUYER) requested 
+                    <span class="feed-vol">29,691.90 USD</span> at 
+                    <span class="feed-price">169.54 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #7</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">140.00 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:12:32 AM</span> -> 
+                    <span class="feed-user">Sayid***</span> (BUYER) bought 
+                    <span class="feed-vol">48,830.77 USD</span> at 
+                    <span class="feed-price">176.35 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-icon" style="background-color: #d29922;">❓</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #8</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">146.25 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:18:16 AM</span> -> 
+                    <span class="feed-user">User-***</span> (BUYER) requested 
+                    <span class="feed-vol">19,207.98 USD</span> at 
+                    <span class="feed-price">176.35 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #9</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">150.00 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:15:02 AM</span> -> 
+                    <span class="feed-user">Hayme***</span> (BUYER) bought 
+                    <span class="feed-vol">1,610.27 USD</span> at 
+                    <span class="feed-price">160.36 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-icon" style="background-color: #2ea043;">🤑</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #10</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">150.00 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:15:06 AM</span> -> 
+                    <span class="feed-user">User-***</span> (BUYER) bought remaining 
+                    <span class="feed-vol">19,251.18 USD</span> at 
+                    <span class="feed-price">176.35 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-icon" style="background-color: #d29922;">❓</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #11</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">160.00 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:11:27 AM</span> -> 
+                    <span class="feed-user">Trust***</span> (BUYER) requested 
+                    <span class="feed-vol">12,551.72 USD</span> at 
+                    <span class="feed-price">176.35 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #12</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">160.00 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:17:43 AM</span> -> 
+                    <span class="feed-user">Hayme***</span> (BUYER) bought 
+                    <span class="feed-vol">4,793.38 USD</span> at 
+                    <span class="feed-price">182.42 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-icon" style="background-color: #d29922;">❓</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #13</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">163.00 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:12:15 AM</span> -> 
+                    <span class="feed-user">Trust***</span> (BUYER) requested 
+                    <span class="feed-vol">24,127.90 USD</span> at 
+                    <span class="feed-price">169.54 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #121212; color: #fff;">⚫</div>
+                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #14</span> -> 
-                    <span class="feed-user">Faruk@A</span> is selling USDT @ 
-                    <span class="feed-price">167.64 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 227-251 ETB | Bybit</span>
+                    <span class="feed-ts">11/24/2025, 06:15:51 AM</span> -> 
+                    <span class="feed-user">User-***</span> (BUYER) bought 
+                    <span class="feed-vol">9,422.03 USD</span> at 
+                    <span class="feed-price">168.12 ETB</span>.
                 </div>
             </div>
             
 
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #121212; color: #fff;">⚫</div>
+                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #15</span> -> 
-                    <span class="feed-user">Three Million</span> is selling USDT @ 
-                    <span class="feed-price">168.07 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 227-229 ETB | Bybit</span>
-                </div>
-            </div>
-            
-
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
-                <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #16</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">170.00 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
-                </div>
-            </div>
-            
-
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
-                <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #17</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">170.08 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
-                </div>
-            </div>
-            
-
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
-                <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #18</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">173.00 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
-                </div>
-            </div>
-            
-
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
-                <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #19</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">174.55 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
-                </div>
-            </div>
-            
-
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
-                <div class="feed-content">
-                    <span class="feed-ts">LIVE OFFER #20</span> -> 
-                    <span class="feed-user">mexc User</span> is selling USDT @ 
-                    <span class="feed-price">175.00 ETB</span>.
-                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                    <span class="feed-ts">11/24/2025, 06:13:15 AM</span> -> 
+                    <span class="feed-user">Real_***</span> (BUYER) bought 
+                    <span class="feed-vol">31,858.16 USD</span> at 
+                    <span class="feed-price">176.31 ETB</span>.
                 </div>
             </div>
             
@@ -310,7 +255,7 @@
             </div>
 
             <footer>
-                Official Bank Rate: 153.28 ETB | Last Update: 2025-11-24 05:43:05 UTC
+                Official Bank Rate: 153.28 ETB | Last Update: 2025-11-24 06:22:58 UTC
             </footer>
         </div>
     </body>
