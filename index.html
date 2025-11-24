@@ -3,260 +3,142 @@
     <html lang="en">
     <head>
         <meta charset="UTF-8">
+        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
         <title>ETB Pro Terminal</title>
         <style>
-            :root {
-                --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666;
-                --accent: #ff0055; --link: #00bfff; --gold: #ffcc00;
-                --border: #333; --hover: rgba(0, 255, 157, 0.05);
-            }
+            :root { --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }
             body { background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; margin: 0; padding: 20px; text-align: center; }
             .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; text-align: left; }
-            
             header { grid-column: span 2; text-align: center; margin-bottom: 20px; }
             h1 { font-size: 2.5rem; margin: 0; text-shadow: 0 0 10px var(--text); }
-            
-            .left-col { display: flex; flex-direction: column; gap: 20px; }
-            .right-col { display: flex; flex-direction: column; gap: 20px; }
-
+            .left-col, .right-col { display: flex; flex-direction: column; gap: 20px; }
             .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
-            
-            /* Ticker */
-            .ticker { text-align: center; padding: 30px; background: linear-gradient(145deg, var(--card), var(--bg)); }
+            .ticker { text-align: center; padding: 30px; background: linear-gradient(180deg, #151515, #0a0a0a); border-top: 3px solid #ff0055; }
             .price { font-size: 4rem; font-weight: bold; color: var(--sub); margin: 10px 0; }
-            .prem { color: var(--gold); border: 1px solid var(--gold); padding: 4px 12px; border-radius: 20px; font-size: 0.9rem; }
-
+            .prem { color: var(--gold); font-size: 0.9rem; display: block; margin-top: 10px; }
             .chart img { width: 100%; border-radius: 8px; display: block; border: 1px solid var(--border); }
-
-            /* Table */
             table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
             th { text-align: left; padding: 12px; border-bottom: 2px solid var(--border); color: var(--text); }
             td { padding: 12px; border-bottom: 1px solid var(--border); color: var(--sub); }
-            tr:last-child td { border-bottom: none; }
-
-            /* FEED STYLES (Transaction Mode) */
-            .feed-title { font-size: 1.1rem; font-weight: bold; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; color: #fff; display: flex; align-items: center; gap: 10px; }
+            .med-col { color: var(--sub); font-weight: bold; }
+            .feed-title { font-size: 1.1rem; font-weight: bold; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; color: var(--text); }
             .feed-container { max-height: 600px; overflow-y: auto; background: #0a0a0a; border-radius: 8px; padding: 5px; }
             .feed-container::-webkit-scrollbar { width: 6px; }
             .feed-container::-webkit-scrollbar-thumb { background: var(--border); }
-
-            .feed-item { display: flex; gap: 12px; padding: 12px 10px; border-bottom: 1px solid #222; align-items: flex-start; font-family: sans-serif; background: #0e0e0e; margin-bottom: 2px; }
-            .feed-icon { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; color: white; }
-            .feed-content { font-size: 0.85rem; color: #ccc; line-height: 1.5; margin-top: 2px; }
-            .feed-ts { color: #666; font-family: monospace; }
+            .feed-item { display: flex; gap: 12px; padding: 10px; border-bottom: 1px solid #222; align-items: center; }
+            .feed-icon { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
+            .feed-content { font-size: 0.85rem; color: #ccc; }
+            .feed-ts { color: #00ff9d; font-weight: bold; font-family: monospace; }
             .feed-user { font-weight: bold; color: #fff; }
             .feed-vol { font-weight: bold; color: #fff; }
             .feed-price { font-weight: bold; color: #fff; }
-
             footer { grid-column: span 2; margin-top: 40px; text-align: center; color: var(--mute); font-size: 0.7rem; }
-            
-            @media (max-width: 900px) { .container { grid-template-columns: 1fr; } header, footer { grid-column: span 1; } .price { font-size: 3rem; } }
+            @media (max-width: 900px) { .container { grid-template-columns: 1fr; } header, footer { grid-column: span 1; } }
         </style>
     </head>
     <body>
         <div class="container">
             <header>
                 <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// LIVE P2P LIQUIDITY SCANNER ///</div>
+                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// LIVE P2P TAPE READER ///</div>
             </header>
-
             <div class="left-col">
                 <div class="card ticker">
                     <div style="color:var(--mute); font-size:0.8rem; letter-spacing:2px;">TRUE USD MEDIAN</div>
-                    <div class="price">176.35 <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
-                    <span class="prem">Premium: +15.05%</span>
+                    <div class="price">176.36 <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
+                    <span class="prem">Black Market Premium: +15.06%</span>
                 </div>
-
-                <div class="card chart">
-                    <img src="etb_neon_terminal.png?v=1763974921" alt="Market Chart">
-                </div>
-
+                <div class="card chart"><img src="etb_neon_terminal.png?v=1763977054" alt="Chart"></div>
                 <div class="card">
-                    <table>
-                        <thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead>
-                        <tbody><tr><td style='font-weight:bold;color:#ccc'>Binance</td><td>176.15</td><td>176.35</td><td style='color:#ff0055;font-weight:bold'>176.35</td><td>176.35</td><td>176.36</td><td>100</td></tr><tr><td style='font-weight:bold;color:#ccc'>Bybit</td><td>130.09</td><td>144.83</td><td style='color:#ff0055;font-weight:bold'>157.05</td><td>167.69</td><td>169.54</td><td>42</td></tr><tr><td style='font-weight:bold;color:#ccc'>MEXC</td><td>90.02</td><td>170.09</td><td style='color:#ff0055;font-weight:bold'>178.05</td><td>182.40</td><td>183.11</td><td>51</td></tr></tbody>
-                    </table>
+                    <table><thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead><tbody><tr><td class='source-col'>Binance</td><td>176.36</td><td>176.36</td><td class='med-col'>176.36</td><td>176.36</td><td>176.37</td><td>60</td></tr><tr><td class='source-col'>Bybit</td><td>167.70</td><td>167.80</td><td class='med-col'>167.91</td><td>168.02</td><td>168.13</td><td>2</td></tr><tr><td>MEXC</td><td colspan='6' style='opacity:0.5'>No Data</td></tr></tbody></table>
                 </div>
             </div>
-
             <div class="right-col">
                 <div class="card">
-                    <div class="feed-title">👀 Recent Market Actions</div>
+                    <div class="feed-title">📢 Real-Time Tape (Trades & Quotes)</div>
                     <div class="feed-container">
-                        
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
+                <div class="feed-icon" style="background:#2ea043">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:56:38 AM</span> -> 
-                    <span class="feed-user">Trust***</span> (BUYER) bought 
-                    <span class="feed-vol">28,070.51 USD</span> at 
-                    <span class="feed-price">177.35 ETB</span>.
+                    <span class="feed-ts">09:37</span> -> 
+                    <span class="feed-source" style="color:#fff">Binance</span>: 
+                    <span class="feed-user">Alwa***</span> 
+                    <b style="color:#2ea043">BOUGHT</b> 
+                    <span class="feed-vol">1,304,216.61 USDT</span> 
+                    @ <span class="feed-price">176.30 ETB</span>
                 </div>
             </div>
-            
-
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
+                <div class="feed-icon" style="background:#2ea043">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:57:47 AM</span> -> 
-                    <span class="feed-user">Hayme***</span> (BUYER) bought 
-                    <span class="feed-vol">45,950.44 USD</span> at 
-                    <span class="feed-price">160.04 ETB</span>.
+                    <span class="feed-ts">09:37</span> -> 
+                    <span class="feed-source" style="color:#fff">Binance</span>: 
+                    <span class="feed-user">McM ***</span> 
+                    <b style="color:#2ea043">BOUGHT</b> 
+                    <span class="feed-vol">31,381.03 USDT</span> 
+                    @ <span class="feed-price">176.30 ETB</span>
                 </div>
             </div>
-            
-
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
+                <div class="feed-icon" style="background:#2ea043">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:57:21 AM</span> -> 
-                    <span class="feed-user">Sayid***</span> (BUYER) bought 
-                    <span class="feed-vol">10,561.39 USD</span> at 
-                    <span class="feed-price">176.35 ETB</span>.
+                    <span class="feed-ts">09:37</span> -> 
+                    <span class="feed-source" style="color:#fff">Binance</span>: 
+                    <span class="feed-user">SKY-***</span> 
+                    <b style="color:#2ea043">BOUGHT</b> 
+                    <span class="feed-vol">21,469.22 USDT</span> 
+                    @ <span class="feed-price">176.30 ETB</span>
                 </div>
             </div>
-            
-
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🤑</div>
+                <div class="feed-icon" style="background:#2ea043">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:59:59 AM</span> -> 
-                    <span class="feed-user">User-***</span> (BUYER) bought remaining 
-                    <span class="feed-vol">49,504.39 USD</span> at 
-                    <span class="feed-price">182.80 ETB</span>.
+                    <span class="feed-ts">09:37</span> -> 
+                    <span class="feed-source" style="color:#fff">Binance</span>: 
+                    <span class="feed-user">MAYA***</span> 
+                    <b style="color:#2ea043">BOUGHT</b> 
+                    <span class="feed-vol">15,905.55 USDT</span> 
+                    @ <span class="feed-price">176.30 ETB</span>
                 </div>
             </div>
-            
-
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
+                <div class="feed-icon" style="background:#2ea043">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:55:34 AM</span> -> 
-                    <span class="feed-user">Hayme***</span> (BUYER) bought 
-                    <span class="feed-vol">36,138.57 USD</span> at 
-                    <span class="feed-price">1824.50 ETB</span>.
+                    <span class="feed-ts">09:37</span> -> 
+                    <span class="feed-source" style="color:#fff">Binance</span>: 
+                    <span class="feed-user">Aman***</span> 
+                    <b style="color:#2ea043">BOUGHT</b> 
+                    <span class="feed-vol">8,264.69 USDT</span> 
+                    @ <span class="feed-price">176.30 ETB</span>
                 </div>
             </div>
-            
-
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
+                <div class="feed-icon" style="background:#2ea043">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 09:00:36 AM</span> -> 
-                    <span class="feed-user">Trust***</span> (BUYER) bought 
-                    <span class="feed-vol">26,955.01 USD</span> at 
-                    <span class="feed-price">169.54 ETB</span>.
+                    <span class="feed-ts">09:37</span> -> 
+                    <span class="feed-source" style="color:#fff">Binance</span>: 
+                    <span class="feed-user">Asla***</span> 
+                    <b style="color:#2ea043">BOUGHT</b> 
+                    <span class="feed-vol">7,885.88 USDT</span> 
+                    @ <span class="feed-price">176.30 ETB</span>
                 </div>
             </div>
-            
-
             <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
+                <div class="feed-icon" style="background:#2ea043">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:50:52 AM</span> -> 
-                    <span class="feed-user">User-***</span> (BUYER) bought 
-                    <span class="feed-vol">30,911.72 USD</span> at 
-                    <span class="feed-price">176.33 ETB</span>.
+                    <span class="feed-ts">09:37</span> -> 
+                    <span class="feed-source" style="color:#fff">Binance</span>: 
+                    <span class="feed-user">ETHO***</span> 
+                    <b style="color:#2ea043">BOUGHT</b> 
+                    <span class="feed-vol">1,300.07 USDT</span> 
+                    @ <span class="feed-price">176.30 ETB</span>
+                </div>
+            </div></div>
                 </div>
             </div>
-            
-
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
-                <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:52:28 AM</span> -> 
-                    <span class="feed-user">User-***</span> (BUYER) bought 
-                    <span class="feed-vol">22,871.34 USD</span> at 
-                    <span class="feed-price">176.31 ETB</span>.
-                </div>
-            </div>
-            
-
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
-                <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:55:29 AM</span> -> 
-                    <span class="feed-user">ETHIO***</span> (BUYER) bought 
-                    <span class="feed-vol">41,654.08 USD</span> at 
-                    <span class="feed-price">180.10 ETB</span>.
-                </div>
-            </div>
-            
-
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
-                <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:54:24 AM</span> -> 
-                    <span class="feed-user">Hayme***</span> (BUYER) bought 
-                    <span class="feed-vol">43,463.48 USD</span> at 
-                    <span class="feed-price">182.06 ETB</span>.
-                </div>
-            </div>
-            
-
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: #d29922;">❓</div>
-                <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:52:23 AM</span> -> 
-                    <span class="feed-user">Trust***</span> (BUYER) requested 
-                    <span class="feed-vol">3,034.28 USD</span> at 
-                    <span class="feed-price">176.34 ETB</span>.
-                </div>
-            </div>
-            
-
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
-                <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:55:55 AM</span> -> 
-                    <span class="feed-user">Real_***</span> (BUYER) bought 
-                    <span class="feed-vol">31,607.22 USD</span> at 
-                    <span class="feed-price">1824.50 ETB</span>.
-                </div>
-            </div>
-            
-
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
-                <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:49:30 AM</span> -> 
-                    <span class="feed-user">Real_***</span> (BUYER) bought 
-                    <span class="feed-vol">3,714.89 USD</span> at 
-                    <span class="feed-price">176.35 ETB</span>.
-                </div>
-            </div>
-            
-
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
-                <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:58:38 AM</span> -> 
-                    <span class="feed-user">Real_***</span> (BUYER) bought 
-                    <span class="feed-vol">22,229.44 USD</span> at 
-                    <span class="feed-price">170.13 ETB</span>.
-                </div>
-            </div>
-            
-
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: #2ea043;">🛒</div>
-                <div class="feed-content">
-                    <span class="feed-ts">11/24/2025, 08:53:37 AM</span> -> 
-                    <span class="feed-user">ETHIO***</span> (BUYER) bought 
-                    <span class="feed-vol">19,355.07 USD</span> at 
-                    <span class="feed-price">176.35 ETB</span>.
-                </div>
-            </div>
-            
-                    </div>
-                </div>
-            </div>
-
-            <footer>
-                Official Bank Rate: 153.28 ETB | Last Update: 2025-11-24 09:02:01 UTC
-            </footer>
+            <footer>Official Bank Rate: 153.28 ETB | Last Update: 2025-11-24 09:37:34 UTC</footer>
         </div>
     </body>
     </html>
