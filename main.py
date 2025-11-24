@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v29.0 (Final Polish)
-- CRASH FIX: 'analyze' function now safely handles both numbers and ad objects.
-- FEED: Real "Tape Reader" detects actual inventory changes (Sales).
-- UI: Light/Dark Toggle + Smart Zoom Graph.
+🇪🇹 ETB Financial Terminal v29.1 (Hotfix)
+- FIX: Solved SyntaxError on line 133 (Split try/with into multiple lines).
+- CORE: All previous v29 features (Tape Reader, Smart Zoom, Light Mode).
 """
 
 import requests
@@ -38,7 +37,8 @@ BURST_WAIT_TIME = 45 # Seconds to wait to catch trades
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "Accept": "application/json"
 }
 
 # --- 1. FETCHERS ---
@@ -84,7 +84,7 @@ def fetch_bybit(side):
     h = HEADERS.copy(); h["Referer"] = "https://www.bybit.com/"
     while True:
         try:
-            r = requests.post(url, headers=h, json={"userId":"","tokenId":"USDT","currencyId":"ETB","payment":[],"side":side,"size":"20","page":str(page),"authMaker":False}, timeout=5)
+            r = requests.post(url, headers=h, json={"userId":"","tokenId":"USDT","currencyId":"ETB","payment":[],"side":side,"size":"50","page":str(page),"authMaker":False}, timeout=5)
             items = r.json().get("result", {}).get("items", [])
             if not items: break
             for i in items:
@@ -130,8 +130,11 @@ def capture_market_snapshot():
 
 def load_market_state():
     if os.path.exists(SNAPSHOT_FILE):
-        try: with open(SNAPSHOT_FILE, 'r') as f: return json.load(f)
-        except: return {}
+        try:
+            with open(SNAPSHOT_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return {}
     return {}
 
 def save_market_state(current_ads):
@@ -139,7 +142,8 @@ def save_market_state(current_ads):
     for ad in current_ads:
         key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
         state[key] = ad['available']
-    with open(SNAPSHOT_FILE, 'w') as f: json.dump(state, f)
+    with open(SNAPSHOT_FILE, 'w') as f:
+        json.dump(state, f)
 
 def detect_real_trades(current_ads, peg):
     prev_state = load_market_state()
@@ -159,21 +163,17 @@ def detect_real_trades(current_ads, peg):
             trades.append({'type':'offer', 'source':ad['source'], 'user':ad['advertiser'], 'price':ad['price']/peg, 'vol_usd':ad['available']})
     return trades
 
-# --- 3. ANALYTICS (CRASH FIXED) ---
-def analyze(input_data, peg):
-    """ 
-    Robust Analyzer: Handles BOTH raw numbers and ad objects safely. 
-    """
-    if not input_data: return None
-    
-    prices = []
-    for item in input_data:
+# --- 3. ANALYTICS ---
+def analyze(prices, peg):
+    if not prices: return None
+    prices_float = []
+    for item in prices:
         if isinstance(item, (int, float)):
-            prices.append(float(item))
+            prices_float.append(float(item))
         elif isinstance(item, dict) and 'price' in item:
-            prices.append(float(item['price']))
+            prices_float.append(float(item['price']))
             
-    valid = sorted([p for p in prices if 50 < p < 400])
+    valid = sorted([p for p in prices_float if 50 < p < 400])
     if len(valid) < 2: return None
     
     adj = [p / peg for p in valid]
@@ -221,6 +221,7 @@ def generate_charts(stats, official_rate):
 
     for mode, filename, style in themes:
         plt.rcParams.update({"figure.facecolor": style["bg"], "axes.facecolor": style["bg"], "axes.edgecolor": style["fg"], "axes.labelcolor": style["fg"], "xtick.color": style["fg"], "ytick.color": style["fg"], "text.color": style["fg"]})
+        
         fig = plt.figure(figsize=(12, 14))
         fig.suptitle(f'ETB LIQUIDITY SCANNER: {datetime.datetime.now().strftime("%H:%M")}', fontsize=20, color=style["fg"], fontweight='bold', y=0.97)
 
@@ -228,6 +229,7 @@ def generate_charts(stats, official_rate):
         data = stats['raw_data']
         y_jitter = [1 + random.uniform(-0.12, 0.12) for _ in data]
         ax1.scatter(data, y_jitter, color=style["fg"], alpha=style["alpha"], s=30, edgecolors='none')
+        
         ax1.axvline(stats['median'], color=style["median"], linewidth=3)
         ax1.axvline(stats['q1'], color=style["sec"], linewidth=2, linestyle='--', alpha=0.6)
         ax1.axvline(stats['q3'], color=style["sec"], linewidth=2, linestyle='--', alpha=0.6)
@@ -267,7 +269,7 @@ def update_website_html(stats, official, timestamp, actions, grouped_ads, peg):
     
     table_rows = ""
     for source, ads in grouped_ads.items():
-        s = analyze(ads, peg) # Now safe to pass ads list
+        s = analyze([a['price'] for a in ads], peg)
         if s:
             table_rows += f"<tr><td class='source-col'>{source}</td><td>{s['min']:.2f}</td><td>{s['q1']:.2f}</td><td class='med-col'>{s['median']:.2f}</td><td>{s['q3']:.2f}</td><td>{s['max']:.2f}</td><td>{s['count']}</td></tr>"
         else:
@@ -427,8 +429,8 @@ def main():
         f_peg = ex.submit(fetch_usdt_peg)
         
         bin_ads = f_bin.result()
-        byb_ads = f_byb.result()
         mexc_ads = f_mexc.result()
+        byb_ads = f_byb.result()
         official = f_off.result() or 0.0
         peg = f_peg.result() or 1.0
 
@@ -436,13 +438,10 @@ def main():
     grouped_ads = {"Binance": bin_ads, "Bybit": byb_ads, "MEXC": mexc_ads}
     
     if snap2:
-        real_actions = detect_real_trades(snap2, peg) # Compare snap1 not needed if using saved state, but here we compare last saved vs now
-        save_market_state(snap2) # Save for next run
+        real_actions = detect_real_trades(snap2, peg)
+        save_market_state(snap2)
         
-        # We can also compare snap1 and snap2 for immediate trades within this run window
-        # But detecting against persistent state is better. 
-        # Actually, detect_real_trades inside reads from FILE.
-        
+        # FIX: Pass the list of prices, not objects
         all_prices = [x['price'] for x in snap2]
         stats = analyze(all_prices, peg)
         
@@ -452,7 +451,8 @@ def main():
             
         update_website_html(stats, official, time.strftime('%Y-%m-%d %H:%M:%S'), real_actions, grouped_ads, peg)
     else:
-        print("⚠️ CRITICAL: No ads found.", file=sys.stderr)
+        print("⚠️ CRITICAL: No ads found from any source.", file=sys.stderr)
+        # Fallback generation
         update_website_html({"median":0, "min":0, "q1":0, "q3":0, "max":0, "count":0, "raw_data":[]}, official, "ERROR", [], grouped_ads, peg)
 
     print("✅ Update Complete.")
