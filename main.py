@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v34.0 (Lifecycle Tracking - EthioBlackMarket Method)
-- NEW REQUEST: Ad ID appears → "a new request"
-- BOUGHT: Ad ID disappears → "bought remaining"
-- SIMPLE: Just track appearing/disappearing IDs (not inventory!)
-- PROVEN: Same method as ethioblackmarket.com
+🇪🇹 ETB Financial Terminal v30.2 (MEXC Fix + No-Bybit History)
+- DATA: MEXC grouping fixed (now shows correctly in the table).
+- HISTORY: Global stats & history use ONLY Binance + MEXC (Bybit excluded).
+- VISUAL: Min/Max corrected via sorted prices in analytics.
+- CORE: Keeps Tape Reader, Smart Zoom, Light/Dark UI.
 """
 
 import requests
@@ -31,321 +31,297 @@ except ImportError:
 # --- CONFIGURATION ---
 P2P_ARMY_KEY = "YJU5RCZ2-P6VTVNNA"
 HISTORY_FILE = "etb_history.csv"
-TRADES_FILE = "recent_trades.json"
+SNAPSHOT_FILE = "market_state.json"
 GRAPH_FILENAME = "etb_neon_terminal.png"
 GRAPH_LIGHT_FILENAME = "etb_light_terminal.png"
 HTML_FILENAME = "index.html"
+BURST_WAIT_TIME = 30  # Seconds to wait to detect sales
 
-# 60-second window per run
-BURST_WAIT_TIME = 60
-
-# Show trades from last 1 HOUR
-TRADE_RETENTION_MINUTES = 60
-
-# Limit to 200 most recent ads per source
-MAX_ADS_PER_SOURCE = 200
-
+# 5-minute cron → 12 points/hour → 24h ≈ 288 points
 HISTORY_POINTS = 288
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Content-Type": "application/json",
     "Accept": "application/json"
 }
 
-# --- 1. FETCHERS ---
+# --- 1. FETCHERS (UNLIMITED DEPTH) ---
 def fetch_official_rate():
     try:
         return float(requests.get("https://open.er-api.com/v6/latest/USD", timeout=5).json()["rates"]["ETB"])
-    except:
+    except Exception:
         return None
+
 
 def fetch_usdt_peg():
     try:
-        return float(requests.get("https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd", timeout=5).json()["tether"]["usd"])
-    except:
+        return float(
+            requests.get(
+                "https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd",
+                timeout=5
+            ).json()["tether"]["usd"]
+        )
+    except Exception:
         return 1.00
 
-def fetch_binance_direct(trade_type):
+
+def fetch_binance_direct(trade_type: str):
+    """Fallback: Scrape Binance directly if P2P.Army API fails."""
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     ads = []
     page = 1
     payload = {
-        "asset": "USDT", "fiat": "ETB", "merchantCheck": False,
-        "page": 1, "rows": 20, "tradeType": trade_type,
-        "payTypes": [], "countries": [], "publisherType": None
+        "asset": "USDT",
+        "fiat": "ETB",
+        "merchantCheck": False,
+        "page": 1,
+        "rows": 20,
+        "tradeType": trade_type,
+        "payTypes": [],
+        "countries": [],
+        "publisherType": None
     }
-    
-    while len(ads) < MAX_ADS_PER_SOURCE:
+
+    while True:
         try:
             payload["page"] = page
             r = requests.post(url, headers=HEADERS, json=payload, timeout=5)
             data = r.json().get("data", [])
-            if not data: break
-            
+            if not data:
+                break
+
             for d in data:
                 adv = d.get("adv", {})
                 ads.append({
-                    "id": str(adv.get("advNo", f"bin_{len(ads)}")),
                     "source": "Binance",
-                    "advertiser": d.get("advertiser", {}).get("nickName", f"Trader{len(ads)}"),
+                    "advertiser": d.get("advertiser", {}).get("nickName", "Binance User"),
                     "price": float(adv.get("price")),
                     "available": float(adv.get("surplusAmount", 0)),
+                    "min": float(adv.get("minSingleTransAmount", 0)),
+                    "max": float(adv.get("maxSingleTransAmount", 0))
                 })
-                if len(ads) >= MAX_ADS_PER_SOURCE:
-                    break
+            if page >= 10:  # Max 200 ads
+                break
             page += 1
             time.sleep(0.2)
-        except:
+        except Exception:
             break
-    
-    return ads[:MAX_ADS_PER_SOURCE]
+    return ads
 
-def fetch_bybit(side):
+
+def fetch_bybit(side: str):
+    """Scrapes Bybit OTC (used for tape & table, but excluded from history)."""
     url = "https://api2.bybit.com/fiat/otc/item/online"
     ads = []
     page = 1
     h = HEADERS.copy()
     h["Referer"] = "https://www.bybit.com/"
-    
-    while len(ads) < MAX_ADS_PER_SOURCE:
+
+    while True:
         try:
-            r = requests.post(url, headers=h, json={
-                "userId": "", "tokenId": "USDT", "currencyId": "ETB",
-                "payment": [], "side": side, "size": "50",
-                "page": str(page), "authMaker": False
-            }, timeout=5)
+            r = requests.post(
+                url,
+                headers=h,
+                json={
+                    "userId": "",
+                    "tokenId": "USDT",
+                    "currencyId": "ETB",
+                    "payment": [],
+                    "side": side,
+                    "size": "50",
+                    "page": str(page),
+                    "authMaker": False
+                },
+                timeout=5
+            )
             items = r.json().get("result", {}).get("items", [])
-            if not items: break
-            
+            if not items:
+                break
+
             for i in items:
                 ads.append({
-                    "id": str(i.get("id", f"bybit_{len(ads)}")),
                     "source": "Bybit",
-                    "advertiser": i.get("nickName", f"Trader{len(ads)}"),
+                    "advertiser": i.get("nickName", "Bybit User"),
                     "price": float(i.get("price")),
                     "available": float(i.get("lastQuantity", 0)),
+                    "min": float(i.get("minAmount", 0)),
+                    "max": float(i.get("maxAmount", 0))
                 })
-                if len(ads) >= MAX_ADS_PER_SOURCE:
-                    break
+            if page >= 10:
+                break
             page += 1
             time.sleep(0.1)
-        except:
+        except Exception:
             break
-    
-    return ads[:MAX_ADS_PER_SOURCE]
+    return ads
 
-def fetch_p2p_army_ads(market, side):
+
+def fetch_p2p_army_ads(market: str, side: str):
+    """
+    Uses your P2P.Army API key for Binance & MEXC.
+    Ensures 'source' names match grouped keys: 'Binance' and 'MEXC'.
+    """
     url = "https://p2p.army/v1/api/get_p2p_order_book"
     h = HEADERS.copy()
     h["X-APIKEY"] = P2P_ARMY_KEY
-    
+
     try:
-        r = requests.post(url, headers=h, json={
-            "market": market, "fiat": "ETB", "asset": "USDT",
-            "side": side, "limit": MAX_ADS_PER_SOURCE
-        }, timeout=10)
+        r = requests.post(
+            url,
+            headers=h,
+            json={"market": market, "fiat": "ETB", "asset": "USDT", "side": side, "limit": 100},
+            timeout=10
+        )
         data = r.json()
-        
-        raw = data.get("result", data.get("data", data.get("ads", [])))
-        if not raw and isinstance(data, list):
-            raw = data
-        
-        source_name = "Binance" if market.lower() == "binance" else "MEXC"
+        raw = (
+            data.get("result", {}).get("data", {}).get("ads", [])
+            or data.get("data", {}).get("ads", [])
+        )
+
         clean = []
-        
-        for ad in raw[:MAX_ADS_PER_SOURCE]:
-            if isinstance(ad, dict) and "price" in ad:
-                try:
-                    # Extract ad ID
-                    ad_id = (
-                        ad.get("id") or
-                        ad.get("advNo") or
-                        ad.get("adv_no") or
-                        ad.get("orderNumber") or
-                        f"unknown_{len(clean)}"
-                    )
-                    
-                    # Extract advertiser
-                    advertiser = (
-                        ad.get("advertiser_name") or 
-                        ad.get("advertiserName") or
-                        ad.get("nickname") or 
-                        ad.get("nickName") or
-                        ad.get("merchant", {}).get("nickName") if isinstance(ad.get("merchant"), dict) else None or
-                        f"Trader{len(clean)}"
-                    )
-                    
-                    # Extract available amount
-                    available = float(
-                        ad.get("available_amount") or 
-                        ad.get("availableAmount") or
-                        ad.get("amount") or 
-                        ad.get("surplusAmount") or 
-                        0
-                    )
-                    
-                    clean.append({
-                        "id": str(ad_id),
-                        "source": source_name,
-                        "advertiser": str(advertiser),
-                        "price": float(ad["price"]),
-                        "available": available,
-                    })
-                except Exception as e:
-                    continue
-        
-        print(f"   {source_name}: {len(clean)} ads", file=sys.stderr)
-        return clean[:MAX_ADS_PER_SOURCE]
+        # Normalize market names so grouping works
+        market_lower = market.lower()
+        if market_lower == "binance":
+            source_name = "Binance"
+        elif market_lower == "mexc":
+            source_name = "MEXC"
+        else:
+            source_name = market.upper()
+
+        for ad in raw:
+            clean.append({
+                "source": source_name,
+                "advertiser": ad.get("advertiser_name", "Trader"),
+                "price": float(ad["price"]),
+                "available": float(ad.get("available_amount", 0)),
+                "min": float(ad.get("min_amount", 0)),
+                "max": float(ad.get("max_amount", 0))
+            })
+        print(f"   P2P.Army {source_name}: {len(clean)} ads", file=sys.stderr)
+        return clean
     except Exception as e:
-        print(f"   {market} error: {e}", file=sys.stderr)
+        print(f"   P2P.Army {market} error: {e}", file=sys.stderr)
         return []
 
-# --- 2. LIFECYCLE TRACKING (ETHIOBLACKMARKET METHOD!) ---
+
+# --- 2. TAPE READER (REAL TRADES ONLY) ---
 def capture_market_snapshot():
+    """Gets data from ALL sources (Binance, MEXC, Bybit)."""
     with ThreadPoolExecutor(max_workers=10) as ex:
-        f_bin = ex.submit(lambda: fetch_p2p_army_ads("binance", "SELL"))
+        f_bin_api = ex.submit(lambda: fetch_p2p_army_ads("binance", "SELL"))
         f_mexc = ex.submit(lambda: fetch_p2p_army_ads("mexc", "SELL"))
         f_byb = ex.submit(lambda: fetch_bybit("1"))
-        
-        bin_data = f_bin.result() or []
+
+        bin_data = f_bin_api.result() or []
         mexc_data = f_mexc.result() or []
         bybit_data = f_byb.result() or []
-        
-        if not bin_data:
-            bin_data = fetch_binance_direct("SELL")
-        
-        total = len(bin_data) + len(mexc_data) + len(bybit_data)
-        print(f"   📊 Collected {total} ads (Binance: {len(bin_data)}, MEXC: {len(mexc_data)}, Bybit: {len(bybit_data)})", file=sys.stderr)
-        
-        return bin_data + bybit_data + mexc_data
 
-def remove_outliers(ads, peg):
-    if len(ads) < 10:
-        return ads
-    
-    prices = sorted([ad["price"] / peg for ad in ads])
-    p10_threshold = prices[int(len(prices) * 0.10)]
-    
-    filtered = [ad for ad in ads if (ad["price"] / peg) > p10_threshold]
-    
-    removed = len(ads) - len(filtered)
-    if removed > 0:
-        print(f"   🗑️ Removed {removed} outliers (bottom 10%)", file=sys.stderr)
-    
-    return filtered
+    # Fallback for Binance if API fails/blocks
+    if not bin_data:
+        bin_data = fetch_binance_direct("SELL")
 
-def detect_lifecycle_events(snapshot_before, snapshot_after, peg):
+    print(
+        f"   Snapshot sources → Binance: {len(bin_data)}, MEXC: {len(mexc_data)}, Bybit: {len(bybit_data)}",
+        file=sys.stderr
+    )
+
+    # Order doesn't matter for stats; we keep Bybit here for tape + table
+    return bin_data + bybit_data + mexc_data
+
+
+def load_market_state():
+    if os.path.exists(SNAPSHOT_FILE):
+        try:
+            with open(SNAPSHOT_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_market_state(current_ads):
+    state = {}
+    for ad in current_ads:
+        key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
+        state[key] = ad["available"]
+    with open(SNAPSHOT_FILE, "w") as f:
+        json.dump(state, f)
+
+
+def detect_real_trades(current_ads, peg):
     """
-    ✅ ETHIOBLACKMARKET METHOD: Track ad IDs appearing/disappearing
-    - Ad ID appears → "a new request"
-    - Ad ID disappears → "bought remaining"
+    Compares Old vs New inventory.
+    If inventory drops, it's a CONFIRMED sale.
     """
-    if not snapshot_before:
-        print("   > First run - establishing baseline", file=sys.stderr)
-        return []
-    
-    # Build ID sets (only Binance + MEXC)
-    prev_ads = {ad['id']: ad for ad in snapshot_before if ad.get('source', '').lower() in ['binance', 'mexc']}
-    curr_ads = {ad['id']: ad for ad in snapshot_after if ad.get('source', '').lower() in ['binance', 'mexc']}
-    
-    prev_ids = set(prev_ads.keys())
-    curr_ids = set(curr_ads.keys())
-    
-    # IDs that appeared = NEW REQUESTS
-    new_ids = curr_ids - prev_ids
-    
-    # IDs that disappeared = BOUGHT
-    gone_ids = prev_ids - curr_ids
-    
-    print(f"   > Lifecycle: {len(new_ids)} new requests, {len(gone_ids)} bought, {len(prev_ids & curr_ids)} stable", file=sys.stderr)
-    
-    events = []
-    
-    # New requests (ads that appeared)
-    for ad_id in new_ids:
-        ad = curr_ads[ad_id]
-        if ad['available'] > 10:  # Only report significant ads
-            events.append({
-                "type": "new_request",
-                "source": ad['source'],
-                "user": ad['advertiser'],
-                "price": ad['price'] / peg,
-                "vol_usd": ad['available'],
-                "timestamp": time.time()
-            })
-            print(f"   🆕 NEW: {ad['source']} - {ad['advertiser'][:15]} new request {ad['available']:,.0f} USDT @ {ad['price']/peg:.2f} ETB", file=sys.stderr)
-    
-    # Bought (ads that disappeared)
-    for ad_id in gone_ids:
-        ad = prev_ads[ad_id]
-        if ad['available'] > 10:  # Only report significant ads
-            events.append({
-                "type": "bought",
-                "source": ad['source'],
-                "user": ad['advertiser'],
-                "price": ad['price'] / peg,
-                "vol_usd": ad['available'],
-                "timestamp": time.time()
-            })
-            print(f"   ✅ BOUGHT: {ad['source']} - {ad['advertiser'][:15]} bought {ad['available']:,.0f} USDT @ {ad['price']/peg:.2f} ETB", file=sys.stderr)
-    
-    print(f"   > Detected {len(events)} market actions in {BURST_WAIT_TIME}s window", file=sys.stderr)
-    return events
+    prev_state = load_market_state()
+    trades = []
 
-def load_recent_trades():
-    if not os.path.exists(TRADES_FILE):
-        return []
-    
-    try:
-        with open(TRADES_FILE, "r") as f:
-            all_trades = json.load(f)
-        
-        cutoff = time.time() - (TRADE_RETENTION_MINUTES * 60)
-        recent = [t for t in all_trades if t.get("timestamp", 0) > cutoff]
-        
-        print(f"   > Loaded {len(recent)} events from last {TRADE_RETENTION_MINUTES} minutes", file=sys.stderr)
-        return recent
-    except:
-        return []
+    for ad in current_ads:
+        key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
+        if key in prev_state:
+            prev = prev_state[key]
+            curr = ad["available"]
 
-def save_trades(new_events):
-    recent = load_recent_trades()
-    all_events = recent + new_events
-    
-    cutoff = time.time() - (TRADE_RETENTION_MINUTES * 60)
-    filtered = [e for e in all_events if e.get("timestamp", 0) > cutoff]
-    
-    with open(TRADES_FILE, "w") as f:
-        json.dump(filtered, f)
-    
-    print(f"   > Saved {len(filtered)} events to history (last hour)", file=sys.stderr)
+            # Inventory Drop = Sale
+            if curr < prev:
+                diff = prev - curr
+                if diff > 10:
+                    trades.append({
+                        "type": "trade",
+                        "source": ad["source"],
+                        "user": ad["advertiser"],
+                        "price": ad["price"] / peg,
+                        "vol_usd": diff
+                    })
+
+    return trades
+
 
 # --- 3. ANALYTICS ---
 def analyze(prices, peg):
+    """
+    Basic stats on a list of ETB prices.
+    Returns values in "true ETB per USD" (divided by USDT peg).
+    """
     if not prices:
         return None
-    
-    clean_prices = sorted([p for p in prices if 10 < p < 500])
+
+    # Filter out junk and SORT to fix min/max
+    clean_prices = sorted(p for p in prices if 10 < p < 500)
     if len(clean_prices) < 2:
         return None
-    
+
     adj = [p / peg for p in clean_prices]
     n = len(adj)
-    
+
     try:
         quantiles = statistics.quantiles(adj, n=100, method="inclusive")
-        p05, q1, median, q3, p95 = quantiles[4], quantiles[24], quantiles[49], quantiles[74], quantiles[94]
-    except:
+        p05 = quantiles[4]
+        p10 = quantiles[9]
+        q1 = quantiles[24]
+        median = quantiles[49]
+        q3 = quantiles[74]
+        p95 = quantiles[94]
+    except Exception:
         median = statistics.median(adj)
-        p05, q1, q3, p95 = adj[0], adj[int(n*0.25)], adj[int(n*0.75)], adj[-1]
-    
+        p05 = adj[0]
+        q1 = adj[int(n * 0.25)]
+        q3 = adj[int(n * 0.75)]
+        p95 = adj[-1]
+
     return {
-        "median": median, "q1": q1, "q3": q3,
-        "p05": p05, "p95": p95,
-        "min": adj[0], "max": adj[-1],
-        "raw_data": adj, "count": n
+        "median": median,
+        "q1": q1,
+        "q3": q3,
+        "p05": p05,
+        "p95": p95,
+        "min": adj[0],
+        "max": adj[-1],
+        "raw_data": adj,
+        "count": n
     }
+
 
 # --- 4. HISTORY ---
 def save_to_history(stats, official):
@@ -356,14 +332,17 @@ def save_to_history(stats, official):
             w.writerow(["Timestamp", "Median", "Q1", "Q3", "Official"])
         w.writerow([
             datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            round(stats["median"], 2), round(stats["q1"], 2),
-            round(stats["q3"], 2), round(official, 2) if official else 0
+            round(stats["median"], 2),
+            round(stats["q1"], 2),
+            round(stats["q3"], 2),
+            round(official, 2) if official else 0
         ])
+
 
 def load_history():
     if not os.path.isfile(HISTORY_FILE):
         return [], [], [], [], []
-    
+
     d, m, q1, q3, off = [], [], [], [], []
     with open(HISTORY_FILE, "r") as f:
         reader = csv.reader(f)
@@ -375,43 +354,53 @@ def load_history():
                 q1.append(float(row[2]))
                 q3.append(float(row[3]))
                 off.append(float(row[4]))
-            except:
+            except Exception:
                 pass
-    
-    return (d[-HISTORY_POINTS:], m[-HISTORY_POINTS:], 
-            q1[-HISTORY_POINTS:], q3[-HISTORY_POINTS:], off[-HISTORY_POINTS:])
 
-# --- 5. GRAPH GENERATOR ---
+    return (
+        d[-HISTORY_POINTS:],
+        m[-HISTORY_POINTS:],
+        q1[-HISTORY_POINTS:],
+        q3[-HISTORY_POINTS:],
+        off[-HISTORY_POINTS:]
+    )
+
+
+# --- 5. GRAPH GENERATOR (SUPER ZOOM) ---
 def generate_charts(stats, official_rate):
     if not GRAPH_ENABLED:
         return
-    
+
     themes = [
-        ("dark", GRAPH_FILENAME, {
-            "bg": "#050505", "fg": "#00ff9d", "grid": "#222",
-            "median": "#ff0055", "sec": "#00bfff", "fill": "#00ff9d", "alpha": 0.7
-        }),
-        ("light", GRAPH_LIGHT_FILENAME, {
-            "bg": "#ffffff", "fg": "#1a1a1a", "grid": "#eee",
-            "median": "#d63384", "sec": "#0d6efd", "fill": "#00a876", "alpha": 0.5
-        })
+        ("dark", GRAPH_FILENAME,
+         {"bg": "#050505", "fg": "#00ff9d", "grid": "#222",
+          "median": "#ff0055", "sec": "#00bfff", "fill": "#00ff9d", "alpha": 0.7}),
+        ("light", GRAPH_LIGHT_FILENAME,
+         {"bg": "#ffffff", "fg": "#1a1a1a", "grid": "#eee",
+          "median": "#d63384", "sec": "#0d6efd", "fill": "#00a876", "alpha": 0.5})
     ]
     dates, medians, q1s, q3s, offs = load_history()
-    
+
     for mode, filename, style in themes:
         plt.rcParams.update({
-            "figure.facecolor": style["bg"], "axes.facecolor": style["bg"],
-            "axes.edgecolor": style["fg"], "axes.labelcolor": style["fg"],
-            "xtick.color": style["fg"], "ytick.color": style["fg"],
+            "figure.facecolor": style["bg"],
+            "axes.facecolor": style["bg"],
+            "axes.edgecolor": style["fg"],
+            "axes.labelcolor": style["fg"],
+            "xtick.color": style["fg"],
+            "ytick.color": style["fg"],
             "text.color": style["fg"]
         })
-        
         fig = plt.figure(figsize=(12, 14))
         fig.suptitle(
             f"ETB LIQUIDITY SCANNER: {datetime.datetime.now().strftime('%H:%M')}",
-            fontsize=20, color=style["fg"], fontweight="bold", y=0.97
+            fontsize=20,
+            color=style["fg"],
+            fontweight="bold",
+            y=0.97
         )
-        
+
+        # Top: Live depth (Smart Zoom P05–P95)
         ax1 = fig.add_subplot(2, 1, 1)
         data = stats["raw_data"]
         y_jitter = [1 + random.uniform(-0.12, 0.12) for _ in data]
@@ -419,24 +408,43 @@ def generate_charts(stats, official_rate):
         ax1.axvline(stats["median"], color=style["median"], linewidth=3)
         ax1.axvline(stats["q1"], color=style["sec"], linewidth=2, linestyle="--", alpha=0.6)
         ax1.axvline(stats["q3"], color=style["sec"], linewidth=2, linestyle="--", alpha=0.6)
-        ax1.text(stats["median"], 1.42, f"MEDIAN\n{stats['median']:.2f}",
-                color=style["median"], ha="center", fontweight="bold")
-        ax1.text(stats["q1"], 0.58, f"Q1\n{stats['q1']:.2f}",
-                color=style["sec"], ha="right", va="top")
-        ax1.text(stats["q3"], 0.58, f"Q3\n{stats['q3']:.2f}",
-                color=style["sec"], ha="left", va="top")
-        
+        ax1.text(
+            stats["median"],
+            1.42,
+            f"MEDIAN\n{stats['median']:.2f}",
+            color=style["median"],
+            ha="center",
+            fontweight="bold"
+        )
+        ax1.text(
+            stats["q1"],
+            0.58,
+            f"Q1\n{stats['q1']:.2f}",
+            color=style["sec"],
+            ha="right",
+            va="top"
+        )
+        ax1.text(
+            stats["q3"],
+            0.58,
+            f"Q3\n{stats['q3']:.2f}",
+            color=style["sec"],
+            ha="left",
+            va="top"
+        )
         if official_rate:
             ax1.axvline(official_rate, color=style["fg"], linestyle=":", linewidth=1.5)
-        
+
         margin = (stats["p95"] - stats["p05"]) * 0.1
-        if margin == 0: margin = 1
+        if margin == 0:
+            margin = 1
         ax1.set_xlim([stats["p05"] - margin, stats["p95"] + margin])
         ax1.set_ylim(0.5, 1.5)
         ax1.set_yticks([])
-        ax1.set_title("Live Market Depth (Top 200 ads)", color=style["fg"], loc="left", pad=10)
+        ax1.set_title("Live Market Depth (Smart Zoom)", color=style["fg"], loc="left", pad=10)
         ax1.grid(True, axis="x", color=style["grid"], linestyle="--")
-        
+
+        # Bottom: 24h history
         ax2 = fig.add_subplot(2, 1, 2)
         if len(dates) > 1:
             ax2.fill_between(dates, q1s, q3s, color=style["fill"], alpha=0.2, linewidth=0)
@@ -448,97 +456,59 @@ def generate_charts(stats, official_rate):
             ax2.yaxis.tick_right()
             ax2.grid(True, color=style["grid"], linewidth=0.5)
             ax2.set_title("Historical Trend (24h)", color=style["fg"], loc="left")
-        
         plt.tight_layout(rect=[0, 0, 1, 0.95])
         plt.savefig(filename, dpi=150, facecolor=style["bg"])
         plt.close()
 
+
 # --- 6. WEB GENERATOR ---
-def update_website_html(stats, official, timestamp, current_ads, grouped_ads, peg):
+def update_website_html(stats, official, timestamp, actions, grouped_ads, peg):
     prem = ((stats["median"] - official) / official) * 100 if official else 0
     cache_buster = int(time.time())
-    
-    # Table
+
+    # Per-source snapshot table
     table_rows = ""
     for source, ads in grouped_ads.items():
         prices = [a["price"] for a in ads]
-        s = analyze(prices, peg)
+        s = analyze(prices, peg) if prices else None
         if s:
-            table_rows += f"<tr><td class='source-col'>{source}</td><td>{s['min']:.2f}</td><td>{s['q1']:.2f}</td><td class='med-col'>{s['median']:.2f}</td><td>{s['q3']:.2f}</td><td>{s['max']:.2f}</td><td>{s['count']}</td></tr>"
+            table_rows += (
+                f"<tr><td class='source-col'>{source}</td>"
+                f"<td>{s['min']:.2f}</td>"
+                f"<td>{s['q1']:.2f}</td>"
+                f"<td class='med-col'>{s['median']:.2f}</td>"
+                f"<td>{s['q3']:.2f}</td>"
+                f"<td>{s['max']:.2f}</td>"
+                f"<td>{s['count']}</td></tr>"
+            )
         else:
-            table_rows += f"<tr><td>{source}</td><td colspan='6' style='opacity:0.5'>No Data</td></tr>"
-    
-    # Feed (lifecycle events!)
+            table_rows += (
+                f"<tr><td>{source}</td>"
+                f"<td colspan='6' style='opacity:0.5'>No Data</td></tr>"
+            )
+
+    # Trade tape
     feed_html = ""
-    recent_events = load_recent_trades()
-    
-    if recent_events:
-        recent_events.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
-        
-        feed_html = f"<div style='color:#2ea043;font-size:0.9rem;margin-bottom:10px;'>✅ {len(recent_events)} market actions in last hour</div>"
-        
-        for event in recent_events[:30]:
-            ts = datetime.datetime.fromtimestamp(event.get("timestamp", time.time()))
-            time_str = ts.strftime("%I:%M:%S %p")
-            age_seconds = time.time() - event.get("timestamp", time.time())
-            age_str = f"{int(age_seconds/60)}min ago" if age_seconds >= 60 else f"{int(age_seconds)}s ago"
-            
-            source = event["source"]
-            s_col = "#f3ba2f" if "Binance" in source else "#2e55e6"
-            icon = "🟡" if "Binance" in source else "🔵"
-            
-            # Different display based on event type
-            if event["type"] == "new_request":
-                action = "<b style='color:#00bfff'>a new request of</b>"
-                bg = "#00bfff"
-            else:  # bought
-                action = "<b style='color:#2ea043'>bought remaining</b>"
-                bg = "#2ea043"
-            
+    now_str = datetime.datetime.now().strftime("%H:%M")
+
+    if actions:
+        actions.sort(key=lambda x: x["vol_usd"], reverse=True)
+        for item in actions[:25]:
+            s_col = "#f3ba2f" if "Binance" in item["source"] else "#000" if "Bybit" in item["source"] else "#2e55e6"
             feed_html += f"""
             <div class="feed-item">
-                <div class="feed-icon" style="background:{bg}">{icon}</div>
+                <div class="feed-icon" style="background:#2ea043">🛒</div>
                 <div class="feed-content">
-                    <span class="feed-ts">{time_str}</span> <span style="color:#666">({age_str})</span> → 
-                    <span class="feed-source" style="color:{s_col};font-weight:bold">{source}</span>: 
-                    <span class="feed-user">{event['user'][:15]}</span> 
-                    {action} 
-                    <span class="feed-vol">{event['vol_usd']:,.0f} USDT</span> 
-                    @ <span class="feed-price">{event['price']:.2f} ETB</span>
+                    <span class="feed-ts">{now_str}</span> -> 
+                    <span class="feed-source" style="color:{s_col}">{item['source']}</span> 
+                    <span class="feed-user">{item['user'][:10]}</span> 
+                    <b style="color:#2ea043">BOUGHT</b> <span class="feed-vol">{item['vol_usd']:,.2f} USDT</span> 
+                    @ <span class="feed-price">{item['price']:.2f} ETB</span>
                 </div>
             </div>"""
     else:
-        # Fallback: Show highest priced offers
-        all_offers = [ad for ad in current_ads if ad.get("source", "").lower() in ["binance", "mexc"]]
-        all_offers.sort(key=lambda x: x.get("price", 0) / peg, reverse=True)
-        
-        if all_offers:
-            feed_html = f"<div style='color:#ffcc00;font-size:0.9rem;margin-bottom:10px;'>💡 No activity yet - Showing 30 Highest Priced Offers</div>"
-            
-            for offer in all_offers[:30]:
-                try:
-                    source = offer.get("source", "Unknown")
-                    s_col = "#f3ba2f" if "Binance" in source else "#2e55e6"
-                    icon = "🟡" if "Binance" in source else "🔵"
-                    
-                    avail = offer.get('available', 0)
-                    avail_str = f"{avail:,.1f}" if avail > 0 else "~"
-                    
-                    feed_html += f"""
-                    <div class="feed-item">
-                        <div class="feed-icon" style="background:{s_col}">{icon}</div>
-                        <div class="feed-content">
-                            <span class="feed-source" style="color:{s_col};font-weight:bold">{source}</span>: 
-                            <span class="feed-user">{offer.get('advertiser', 'Unknown')[:15]}</span> 
-                            offering <span class="feed-vol">{avail_str} USDT</span> 
-                            @ <span class="feed-price">{offer.get('price', 0)/peg:.2f} ETB</span>
-                        </div>
-                    </div>"""
-                except Exception as e:
-                    continue
-        else:
-            feed_html = "<div style='color:#888;font-size:0.9rem;'>⏳ Waiting for market activity...</div>"
-    
+        feed_html = "<div class='feed-item' style='color:#888'>No active trades in last 30s window (Market Quiet).</div>"
+
     html = f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -547,10 +517,10 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market Watch v34</title>
+        <title>ETB Market Watch</title>
         <style>
-            :root {{ --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }}
-            [data-theme="light"] {{ --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; }}
+            :root {{ --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; --hover: rgba(0,255,157,0.05); }}
+            [data-theme="light"] {{ --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; --hover: rgba(0,0,0,0.05); }}
             
             body {{ background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; margin: 0; padding: 20px; text-align: center; transition: 0.3s; }}
             .container {{ max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; text-align: left; }}
@@ -566,7 +536,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             .price {{ font-size: 4rem; font-weight: bold; color: var(--sub); margin: 10px 0; }}
             .prem {{ color: var(--gold); font-size: 0.9rem; display: block; margin-top: 10px; }}
             
-            .chart img {{ width: 100%; border-radius: 8px; display: block; border: 1px solid var(--border); }}
+            .chart img {{ width: 100%; border-radius: 8px; display: block; border: 1px solid var(--border); transition: 0.3s; }}
             
             table {{ width: 100%; border-collapse: collapse; font-size: 0.9rem; }}
             th {{ text-align: left; padding: 12px; border-bottom: 2px solid var(--border); color: var(--text); }}
@@ -590,7 +560,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         <div class="container">
             <header>
                 <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// LIFECYCLE TRACKING (EthioBlackMarket Method) ///</div>
+                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// LIVE P2P TAPE READER ///</div>
                 <div class="toggle" onclick="toggleTheme()">🌓 Theme</div>
             </header>
 
@@ -605,7 +575,9 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 </div>
                 <div class="card">
                     <table>
-                        <thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead>
+                        <thead>
+                            <tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr>
+                        </thead>
                         <tbody>{table_rows}</tbody>
                     </table>
                 </div>
@@ -613,15 +585,12 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
 
             <div class="right-col">
                 <div class="card">
-                    <div class="feed-title">👀 Recent Market Actions</div>
+                    <div class="feed-title">📢 Real-Time Trades (Inventory Drops)</div>
                     <div class="feed-container">{feed_html}</div>
                 </div>
             </div>
 
-            <footer>
-                Official: {official:.2f} ETB | Last Update: {timestamp} UTC | 
-                Tracking ad lifecycle (appearing/disappearing)
-            </footer>
+            <footer>Official Bank Rate: {official:.2f} ETB | Last Update: {timestamp} UTC</footer>
         </div>
 
         <script>
@@ -634,7 +603,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 html.setAttribute('data-theme', theme);
                 document.getElementById('chartImg').src = theme === 'light' ? imgLight : imgDark;
             }})();
-
+            
             function toggleTheme() {{
                 const current = html.getAttribute('data-theme');
                 const next = current === 'light' ? 'dark' : 'light';
@@ -646,64 +615,92 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     </body>
     </html>
     """
-    
     with open(HTML_FILENAME, "w") as f:
         f.write(html)
+    print("✅ Website generated.", file=sys.stderr)
 
-# --- 7. MAIN (LIFECYCLE TRACKING!) ---
+
+# --- 7. MAIN ---
 def main():
-    print("🔍 Running v34.0 (Lifecycle Tracking - EthioBlackMarket Method)...", file=sys.stderr)
-    
-    peg = fetch_usdt_peg() or 1.0
-    
+    print("🔍 Running v30.2 MEXC+History Fix Scan...", file=sys.stderr)
+
     # 1. SNAPSHOT 1
     print("   > Snapshot 1/2...", file=sys.stderr)
     snapshot_1 = capture_market_snapshot()
-    snapshot_1 = remove_outliers(snapshot_1, peg)
-    
+
     # 2. WAIT
-    print(f"   > ⏳ Waiting {BURST_WAIT_TIME}s for ads to appear/disappear...", file=sys.stderr)
+    print(f"   > Waiting {BURST_WAIT_TIME}s...", file=sys.stderr)
     time.sleep(BURST_WAIT_TIME)
-    
+
     # 3. SNAPSHOT 2
     print("   > Snapshot 2/2...", file=sys.stderr)
     snapshot_2 = capture_market_snapshot()
-    snapshot_2 = remove_outliers(snapshot_2, peg)
-    
+
     official = fetch_official_rate() or 0.0
-    
-    # Group by source
+    peg = fetch_usdt_peg() or 1.0
+
+    # Group by source for table
     grouped_ads = {"Binance": [], "Bybit": [], "MEXC": []}
     for ad in snapshot_2:
-        if ad.get("source") in grouped_ads:
-            grouped_ads[ad["source"]].append(ad)
-    
+        src = ad.get("source")
+        if src in grouped_ads:
+            grouped_ads[src].append(ad)
+
     if snapshot_2:
-        # ✅ LIFECYCLE TRACKING: Detect appearing/disappearing ads
-        new_events = detect_lifecycle_events(snapshot_1, snapshot_2, peg)
-        
-        # Save events to persistent history
-        if new_events:
-            save_trades(new_events)
-        
-        # Stats (exclude Bybit)
+        # Tape + inventory tracking uses ALL sources, including Bybit
+        real_actions = detect_real_trades(snapshot_2, peg)
+        save_market_state(snapshot_2)
+
+        # 👇 IMPORTANT: Global stats & history EXCLUDE BYBIT
         stats_prices = [ad["price"] for ad in snapshot_2 if ad.get("source") != "Bybit"]
-        stats = analyze(stats_prices, peg)
-        
+        stats = analyze(stats_prices, peg) if stats_prices else None
+
         if stats:
             save_to_history(stats, official)
             generate_charts(stats, official)
             update_website_html(
-                stats, official,
+                stats,
+                official,
                 time.strftime("%Y-%m-%d %H:%M:%S"),
-                snapshot_2, grouped_ads, peg
+                real_actions,
+                grouped_ads,
+                peg
             )
         else:
-            print("⚠️ Could not compute stats", file=sys.stderr)
+            print("⚠️ Could not compute stats (not enough non-Bybit prices).", file=sys.stderr)
+            fallback_stats = {
+                "median": 0, "q1": 0, "q3": 0,
+                "p05": 0, "p95": 0,
+                "min": 0, "max": 0,
+                "raw_data": [], "count": 0
+            }
+            update_website_html(
+                fallback_stats,
+                official,
+                time.strftime("%Y-%m-%d %H:%M:%S"),
+                real_actions,
+                grouped_ads,
+                peg
+            )
     else:
-        print("⚠️ No ads found", file=sys.stderr)
-    
-    print(f"✅ Complete! Detected {len(new_events) if 'new_events' in locals() else 0} events this run.")
+        print("⚠️ CRITICAL: No ads found.", file=sys.stderr)
+        fallback_stats = {
+            "median": 0, "q1": 0, "q3": 0,
+            "p05": 0, "p95": 0,
+            "min": 0, "max": 0,
+            "raw_data": [], "count": 0
+        }
+        update_website_html(
+            fallback_stats,
+            official,
+            "ERROR",
+            [],
+            grouped_ads,
+            peg
+        )
+
+    print("✅ Update Complete.", file=sys.stderr)
+
 
 if __name__ == "__main__":
     main()
