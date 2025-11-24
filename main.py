@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v30.0 (The Harvester)
-- DATA: Aggressive scraping (Unlimited Pages) for maximum sample size.
-- API: Uses P2P.Army for MEXC & Binance (with Direct Fallback).
-- HISTORY: "Tape Reader" detects REAL inventory drops (No fake data).
-- VISUAL: Super-Zoom Graph focusing only on the active price range.
+🇪🇹 ETB Financial Terminal v30.1 (Hotfix)
+- FIX: Corrected SyntaxError on line 155 (split try/with block).
+- DATA: "The Harvester" Logic (Aggressive Scraping + Real Inventory Tracking).
+- VISUAL: Smart Zoom Graph + P2P.Army API Integration.
 """
 
 import requests
@@ -103,7 +102,6 @@ def fetch_bybit(side):
                     'min': float(i.get('minAmount', 0)),
                     'max': float(i.get('maxAmount', 0))
                 })
-            # Aggressive Pagination: Keep going until no data
             if page >= 10: break 
             page += 1; time.sleep(0.1)
         except: break
@@ -114,13 +112,9 @@ def fetch_p2p_army_ads(market, side):
     url = "https://p2p.army/v1/api/get_p2p_order_book"
     h = HEADERS.copy(); h["X-APIKEY"] = P2P_ARMY_KEY
     try:
-        # Request MAX limit
         r = requests.post(url, headers=h, json={"market":market,"fiat":"ETB","asset":"USDT","side":side,"limit":100}, timeout=10)
         data = r.json()
-        
-        # Handle different response structures
         raw = data.get("result", {}).get("data", {}).get("ads", []) or data.get("data", {}).get("ads", [])
-        
         clean = []
         for ad in raw:
             clean.append({
@@ -152,8 +146,11 @@ def capture_market_snapshot():
 
 def load_market_state():
     if os.path.exists(SNAPSHOT_FILE):
-        try: with open(SNAPSHOT_FILE, 'r') as f: return json.load(f)
-        except: return {}
+        try: 
+            with open(SNAPSHOT_FILE, 'r') as f: 
+                return json.load(f)
+        except: 
+            return {}
     return {}
 
 def save_market_state(current_ads):
@@ -161,7 +158,8 @@ def save_market_state(current_ads):
     for ad in current_ads:
         key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
         state[key] = ad['available']
-    with open(SNAPSHOT_FILE, 'w') as f: json.dump(state, f)
+    with open(SNAPSHOT_FILE, 'w') as f: 
+        json.dump(state, f)
 
 def detect_real_trades(current_ads, peg):
     """ 
@@ -180,7 +178,6 @@ def detect_real_trades(current_ads, peg):
             # Inventory Drop = Sale
             if curr < prev:
                 diff = prev - curr
-                # Filter noise: Must be > $10 USD change to count as a trade
                 if diff > 10:
                     trades.append({
                         'type': 'trade',
@@ -195,8 +192,6 @@ def detect_real_trades(current_ads, peg):
 # --- 3. ANALYTICS ---
 def analyze(prices, peg):
     if not prices: return None
-    # Filter only obvious API errors (0 or infinity)
-    # Keep scam prices (90-100) so we can see them in the graph, but not stats
     clean_prices = [p for p in prices if 10 < p < 500]
     if len(clean_prices) < 2: return None
     
@@ -248,38 +243,25 @@ def generate_charts(stats, official_rate):
         fig = plt.figure(figsize=(12, 14))
         fig.suptitle(f'ETB LIQUIDITY SCANNER: {datetime.datetime.now().strftime("%H:%M")}', fontsize=20, color=style["fg"], fontweight='bold', y=0.97)
 
-        # TOP: DOT PLOT
         ax1 = fig.add_subplot(2, 1, 1)
         data = stats['raw_data']
         y_jitter = [1 + random.uniform(-0.12, 0.12) for _ in data]
-        
-        # Scatter Plot
         ax1.scatter(data, y_jitter, color=style["fg"], alpha=style["alpha"], s=30, edgecolors='none')
-        
-        # Lines
         ax1.axvline(stats['median'], color=style["median"], linewidth=3)
         ax1.axvline(stats['q1'], color=style["sec"], linewidth=2, linestyle='--', alpha=0.6)
         ax1.axvline(stats['q3'], color=style["sec"], linewidth=2, linestyle='--', alpha=0.6)
-        
-        # Labels
         ax1.text(stats['median'], 1.42, f"MEDIAN\n{stats['median']:.2f}", color=style["median"], ha='center', fontweight='bold')
         ax1.text(stats['q1'], 0.58, f"Q1\n{stats['q1']:.2f}", color=style["sec"], ha='right', va='top')
         ax1.text(stats['q3'], 0.58, f"Q3\n{stats['q3']:.2f}", color=style["sec"], ha='left', va='top')
-        
         if official_rate: ax1.axvline(official_rate, color=style["fg"], linestyle=':', linewidth=1.5)
         
-        # --- SUPER ZOOM LOGIC ---
-        # We ignore the 0-100 range entirely and focus on the active wall (P05 to P95)
-        width = stats['p95'] - stats['p05']
-        margin = width * 0.15
-        if margin < 2: margin = 2
+        margin = (stats['p95'] - stats['p05']) * 0.1
+        if margin == 0: margin = 1
         ax1.set_xlim([stats['p05'] - margin, stats['p95'] + margin])
-        
         ax1.set_ylim(0.5, 1.5); ax1.set_yticks([])
         ax1.set_title("Live Market Depth (Smart Zoom)", color=style["fg"], loc='left', pad=10)
         ax1.grid(True, axis='x', color=style["grid"], linestyle='--')
 
-        # BOTTOM: HISTORY
         ax2 = fig.add_subplot(2, 1, 2)
         if len(dates) > 1:
             ax2.fill_between(dates, q1s, q3s, color=style["fill"], alpha=0.2, linewidth=0)
@@ -290,7 +272,6 @@ def generate_charts(stats, official_rate):
             ax2.yaxis.tick_right()
             ax2.grid(True, color=style["grid"], linewidth=0.5)
             ax2.set_title("Historical Trend (24h)", color=style["fg"], loc='left')
-        
         plt.tight_layout(rect=[0, 0, 1, 0.95])
         plt.savefig(filename, dpi=150, facecolor=style["bg"])
         plt.close()
@@ -309,12 +290,11 @@ def update_website_html(stats, official, timestamp, actions, grouped_ads, peg):
         else:
             table_rows += f"<tr><td>{source}</td><td colspan='6' style='opacity:0.5'>No Data</td></tr>"
 
-    # Feed Logic
     feed_html = ""
     now_str = datetime.datetime.now().strftime("%H:%M")
     
     if actions:
-        actions.sort(key=lambda x: x['vol_usd'], reverse=True) # Show biggest trades first
+        actions.sort(key=lambda x: x['vol_usd'], reverse=True)
         for item in actions[:25]:
             s_col = "#f3ba2f" if "Binance" in item['source'] else "#000" if "Bybit" in item['source'] else "#2e55e6"
             feed_html += f"""
@@ -329,7 +309,7 @@ def update_website_html(stats, official, timestamp, actions, grouped_ads, peg):
                 </div>
             </div>"""
     else:
-        feed_html = "<div class='feed-item' style='color:#888'>No trades detected in last 30s window (Market Quiet).</div>"
+        feed_html = "<div class='feed-item' style='color:#888'>No active trades in last 30s window (Market Quiet).</div>"
 
     html = f"""
     <!DOCTYPE html>
@@ -393,7 +373,7 @@ def update_website_html(stats, official, timestamp, actions, grouped_ads, peg):
                     <span class="prem">Black Market Premium: +{prem:.2f}%</span>
                 </div>
                 <div class="card chart">
-                    <img src="{GRAPH_FILENAME}?v={cache_buster}" id="chartImg" alt="Chart">
+                    <img src="{GRAPH_FILENAME}?v={cache_buster}" id="chartImg" alt="Market Chart">
                 </div>
                 <div class="card">
                     <table><thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead><tbody>{table_rows}</tbody></table>
@@ -437,17 +417,17 @@ def update_website_html(stats, official, timestamp, actions, grouped_ads, peg):
 
 # --- 7. MAIN ---
 def main():
-    print("🔍 Running v30.0 The Harvester...", file=sys.stderr)
+    print("🔍 Running v30.1 Hotfix Scan...", file=sys.stderr)
     
-    # 1. SNAPSHOT 1 (Base)
+    # 1. SNAPSHOT 1
     print("   > Snapshot 1/2...", file=sys.stderr)
     snapshot_1 = capture_market_snapshot()
     
-    # 2. WAIT (Trap Trades)
+    # 2. WAIT
     print(f"   > Waiting {BURST_WAIT_TIME}s...", file=sys.stderr)
     time.sleep(BURST_WAIT_TIME)
 
-    # 3. SNAPSHOT 2 (Compare)
+    # 3. SNAPSHOT 2
     print("   > Snapshot 2/2...", file=sys.stderr)
     snapshot_2 = capture_market_snapshot()
     
@@ -461,10 +441,9 @@ def main():
     for ad in snapshot_2:
         if ad['source'] in grouped_ads: grouped_ads[ad['source']].append(ad)
 
-    # Detect Trades
     if snapshot_2:
         real_actions = detect_real_trades(snapshot_2, peg)
-        save_market_state(snapshot_2) # Save for next run
+        save_market_state(snapshot_2)
         
         all_prices = [x['price'] for x in snapshot_2]
         stats = analyze(all_prices, peg)
