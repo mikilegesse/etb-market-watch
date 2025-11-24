@@ -3,7 +3,7 @@ name: Update Market Terminal
 on:
   schedule:
     - cron: '*/5 * * * *'  # Runs every 5 minutes
-  workflow_dispatch:        # Allows you to click "Run Now"
+  workflow_dispatch:        # Allows manual trigger
 
 permissions:
   contents: write
@@ -11,32 +11,35 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: 1. Checkout Code
         uses: actions/checkout@v4
-
+      
       - name: 2. Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
+      
       - name: 3. Install Libraries
-        # Added --break-system-packages to bypass Ubuntu 24.04 restrictions if they occur
         run: pip install requests matplotlib --break-system-packages
-
+      
       - name: 4. Run Market Scanner
         run: python main.py
-
+      
       - name: 5. Save Results
         run: |
           git config --global user.name "NeonTraderBot"
           git config --global user.email "bot@github.com"
           
-          # UNIVERSAL FIX: "git add ." adds all changes safely
-          # It won't crash if a specific image is missing
+          # ✅ FIX: Pull before pushing to avoid conflicts
+          git pull --rebase origin main || echo "Nothing to pull"
+          
+          # Add all changes
           git add .
           
           # Commit only if there are changes
-          git commit -m "📈 Auto-update: $(date)" || echo "No changes to commit"
-          git push
+          git diff --quiet && git diff --staged --quiet || git commit -m "📈 Auto-update: $(date)"
+          
+          # Push with retry logic
+          git push || (git pull --rebase origin main && git push)
