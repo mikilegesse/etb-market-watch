@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v35.1 (HYBRID ENGINE + FIX)
-- FIX: Restored missing 'cache_buster' variable in HTML generator.
-- ENGINE: Smart Parser + Lifecycle Tracking + Inventory Drops.
-- RESULT: The ultimate tracking dashboard.
+🇪🇹 ETB Financial Terminal v35.0 (TRUE INVENTORY TRACKING)
+- PARTIAL FILLS: Tracks when an ad's volume decreases (Real Sales).
+- BOUGHT ALL: Tracks when an ad disappears completely.
+- NEW OFFERS: Tracks when new inventory hits the market.
 """
 
 import requests
@@ -47,45 +47,15 @@ HEADERS = {
     "Accept": "application/json"
 }
 
-# --- 1. SMART PARSING LOGIC ---
-def safe_get(data, keys, default=None):
-    if isinstance(data, dict):
-        for k in keys:
-            if k in data and data[k] is not None:
-                return data[k]
-        for val in data.values():
-            if isinstance(val, dict):
-                res = safe_get(val, keys)
-                if res is not None: return res
-    return default
+# --- 1. FETCHERS ---
+def fetch_official_rate():
+    try: return float(requests.get("https://open.er-api.com/v6/latest/USD", timeout=5).json()["rates"]["ETB"])
+    except: return None
 
-def parse_ad(raw_ad, source):
-    id_keys = ['advNo', 'adv_no', 'orderNumber', 'id', 'itemNo', 'code']
-    price_keys = ['price', 'unit_price', 'rate']
-    vol_keys = ['surplusAmount', 'tradableQuantity', 'available_amount', 'amount', 'dynamicMaxSingleTransAmount', 'maxAmount', 'quantity', 'stock', 'available', 'lastQuantity']
-    user_keys = ['nickName', 'nickname', 'advertiser_name', 'name', 'userName', 'advertiserName']
+def fetch_usdt_peg():
+    try: return float(requests.get("https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd", timeout=5).json()["tether"]["usd"])
+    except: return 1.00
 
-    try:
-        price = float(safe_get(raw_ad, price_keys, 0))
-        vol = float(safe_get(raw_ad, vol_keys, 0))
-        user = safe_get(raw_ad, user_keys, "Trader")
-        if user == "Trader":
-             if 'advertiser' in raw_ad: user = safe_get(raw_ad['advertiser'], user_keys, "Trader")
-             elif 'merchant' in raw_ad: user = safe_get(raw_ad['merchant'], user_keys, "Trader")
-        
-        ad_id = str(safe_get(raw_ad, id_keys, f"unknown_{random.randint(10000,99999)}"))
-
-        return {
-            "id": ad_id,
-            "source": source,
-            "advertiser": user,
-            "price": price,
-            "available": vol
-        }
-    except:
-        return None
-
-# --- 2. FETCHERS ---
 def fetch_binance_direct(trade_type):
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
     ads = []
@@ -98,8 +68,14 @@ def fetch_binance_direct(trade_type):
             data = r.json().get("data", [])
             if not data: break
             for d in data:
-                parsed = parse_ad(d, "Binance")
-                if parsed and parsed['price'] > 0: ads.append(parsed)
+                adv = d.get("adv", {})
+                ads.append({
+                    "id": str(adv.get("advNo", f"bin_{len(ads)}")),
+                    "source": "Binance",
+                    "advertiser": d.get("advertiser", {}).get("nickName", f"Trader{len(ads)}"),
+                    "price": float(adv.get("price")),
+                    "available": float(adv.get("surplusAmount", 0)),
+                })
             page += 1
             time.sleep(0.2)
         except: break
@@ -116,8 +92,13 @@ def fetch_bybit(side):
             items = r.json().get("result", {}).get("items", [])
             if not items: break
             for i in items:
-                parsed = parse_ad(i, "Bybit")
-                if parsed and parsed['price'] > 0: ads.append(parsed)
+                ads.append({
+                    "id": str(i.get("id", f"bybit_{len(ads)}")),
+                    "source": "Bybit",
+                    "advertiser": i.get("nickName", f"Trader{len(ads)}"),
+                    "price": float(i.get("price")),
+                    "available": float(i.get("lastQuantity", 0)),
+                })
             page += 1
             time.sleep(0.1)
         except: break
@@ -134,31 +115,35 @@ def fetch_p2p_army_ads(market, side):
         source_name = "Binance" if market.lower() == "binance" else "MEXC"
         clean = []
         for ad in raw[:MAX_ADS_PER_SOURCE]:
-            parsed = parse_ad(ad, source_name)
-            if parsed and parsed['price'] > 0: clean.append(parsed)
+            if isinstance(ad, dict) and "price" in ad:
+                try:
+                    ad_id = ad.get("id") or ad.get("advNo") or ad.get("orderNumber") or f"unknown_{len(clean)}"
+                    advertiser = ad.get("advertiser_name") or ad.get("nickName") or "Trader"
+                    available = float(ad.get("available_amount") or ad.get("surplusAmount") or 0)
+                    clean.append({
+                        "id": str(ad_id),
+                        "source": source_name,
+                        "advertiser": str(advertiser),
+                        "price": float(ad["price"]),
+                        "available": available,
+                    })
+                except: continue
         return clean[:MAX_ADS_PER_SOURCE]
     except: return []
 
-# --- 3. HYBRID LIFECYCLE ENGINE ---
-def fetch_usdt_peg():
-    try: return float(requests.get("https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd", timeout=5).json()["tether"]["usd"])
-    except: return 1.00
-
-def fetch_official_rate():
-    try: return float(requests.get("https://open.er-api.com/v6/latest/USD", timeout=5).json()["rates"]["ETB"])
-    except: return None
-
+# --- 2. INVENTORY TRACKING ENGINE ---
 def capture_market_snapshot():
     with ThreadPoolExecutor(max_workers=10) as ex:
         f_bin = ex.submit(lambda: fetch_p2p_army_ads("binance", "SELL"))
         f_mexc = ex.submit(lambda: fetch_p2p_army_ads("mexc", "SELL"))
         f_byb = ex.submit(lambda: fetch_bybit("1"))
+        
         bin_data = f_bin.result() or []
         mexc_data = f_mexc.result() or []
         bybit_data = f_byb.result() or []
+        
         if not bin_data: bin_data = fetch_binance_direct("SELL")
-        total = len(bin_data) + len(mexc_data) + len(bybit_data)
-        print(f"   📊 Collected {total} ads (Binance: {len(bin_data)}, MEXC: {len(mexc_data)}, Bybit: {len(bybit_data)})", file=sys.stderr)
+        
         return bin_data + bybit_data + mexc_data
 
 def remove_outliers(ads, peg):
@@ -167,50 +152,80 @@ def remove_outliers(ads, peg):
     p10_threshold = prices[int(len(prices) * 0.10)]
     return [ad for ad in ads if (ad["price"] / peg) > p10_threshold]
 
-def detect_hybrid_events(snapshot_before, snapshot_after, peg):
+def detect_inventory_changes(snapshot_before, snapshot_after, peg):
+    """
+    ✅ INVENTORY TRACKING LOGIC
+    1. Common IDs: Volume Before - Volume After = Sold Amount (Partial Fill)
+    2. Missing IDs: Volume Before = Sold Amount (Bought All)
+    3. New IDs: New Volume (New Request)
+    """
     if not snapshot_before:
         print("   > First run - establishing baseline", file=sys.stderr)
         return []
     
+    # Map IDs
     prev_ads = {ad['id']: ad for ad in snapshot_before if ad.get('source', '').lower() in ['binance', 'mexc']}
     curr_ads = {ad['id']: ad for ad in snapshot_after if ad.get('source', '').lower() in ['binance', 'mexc']}
     
     prev_ids = set(prev_ads.keys())
     curr_ids = set(curr_ads.keys())
     
-    new_ids = curr_ids - prev_ids 
-    gone_ids = prev_ids - curr_ids
-    common_ids = prev_ids.intersection(curr_ids)
-    
     events = []
     
-    # TYPE A: New Requests
-    for ad_id in new_ids:
-        ad = curr_ads[ad_id]
-        if ad['available'] > 5:
-            events.append({"type": "new_request", "source": ad['source'], "user": ad['advertiser'], "price": ad['price'] / peg, "vol_usd": ad['available'], "timestamp": time.time()})
-            print(f"   🆕 NEW: {ad['source']} - {ad['advertiser']} req {ad['available']:,.0f} USDT", file=sys.stderr)
+    # 1. INVENTORY DROPS (Partial Fills - The core inventory tracking)
+    common_ids = prev_ids.intersection(curr_ids)
+    for ad_id in common_ids:
+        prev = prev_ads[ad_id]
+        curr = curr_ads[ad_id]
+        
+        # Calculate volume difference
+        if curr['available'] < prev['available']:
+            diff = prev['available'] - curr['available']
+            # Filter noise (changes less than 10 USDT might be minor adjustments)
+            if diff > 10: 
+                events.append({
+                    "type": "partial_fill",
+                    "source": curr['source'],
+                    "user": curr['advertiser'],
+                    "price": curr['price'] / peg,
+                    "vol_usd": diff, # The amount sold
+                    "timestamp": time.time()
+                })
+                print(f"   📉 PARTIAL: {curr['source']} - {curr['advertiser']} sold {diff:,.0f} USDT (Inventory: {prev['available']:.0f} -> {curr['available']:.0f})", file=sys.stderr)
 
-    # TYPE B: Bought Remaining
+    # 2. BOUGHT ALL (Inventory went to 0 / Disappeared)
+    gone_ids = prev_ids - curr_ids
     for ad_id in gone_ids:
         ad = prev_ads[ad_id]
-        if ad['available'] > 5:
-            events.append({"type": "bought_all", "source": ad['source'], "user": ad['advertiser'], "price": ad['price'] / peg, "vol_usd": ad['available'], "timestamp": time.time()})
-            print(f"   ✅ BOUGHT ALL: {ad['source']} - {ad['advertiser']} bought {ad['available']:,.0f} USDT", file=sys.stderr)
+        if ad['available'] > 10:
+            events.append({
+                "type": "bought_all",
+                "source": ad['source'],
+                "user": ad['advertiser'],
+                "price": ad['price'] / peg,
+                "vol_usd": ad['available'],
+                "timestamp": time.time()
+            })
+            print(f"   ✅ BOUGHT ALL: {ad['source']} - {ad['advertiser']} sold all {ad['available']:,.0f} USDT", file=sys.stderr)
 
-    # TYPE C: Partial Fill (Inventory Drop)
-    for ad_id in common_ids:
-        prev_ad = prev_ads[ad_id]
-        curr_ad = curr_ads[ad_id]
-        if curr_ad['available'] < prev_ad['available']:
-            diff = prev_ad['available'] - curr_ad['available']
-            if diff > 5:
-                events.append({"type": "partial_fill", "source": curr_ad['source'], "user": curr_ad['advertiser'], "price": curr_ad['price'] / peg, "vol_usd": diff, "timestamp": time.time()})
-                print(f"   📉 PARTIAL: {curr_ad['source']} - {curr_ad['advertiser']} sold {diff:,.0f} USDT", file=sys.stderr)
+    # 3. NEW REQUESTS (Inventory Added)
+    new_ids = curr_ids - prev_ids
+    for ad_id in new_ids:
+        ad = curr_ads[ad_id]
+        if ad['available'] > 10:
+            events.append({
+                "type": "new_request",
+                "source": ad['source'],
+                "user": ad['advertiser'],
+                "price": ad['price'] / peg,
+                "vol_usd": ad['available'],
+                "timestamp": time.time()
+            })
+            print(f"   🆕 NEW: {ad['source']} - {ad['advertiser']} added {ad['available']:,.0f} USDT", file=sys.stderr)
 
     return events
 
-# --- 4. DATA HANDLING ---
+# --- 3. DATA HANDLING ---
 def load_recent_trades():
     if not os.path.exists(TRADES_FILE): return []
     try:
@@ -227,7 +242,7 @@ def save_trades(new_events):
     filtered = [e for e in all_events if e.get("timestamp", 0) > cutoff]
     with open(TRADES_FILE, "w") as f: json.dump(filtered, f)
 
-# --- 5. VISUALS & WEB ---
+# --- 4. VISUALS & WEB ---
 def analyze(prices, peg):
     if not prices: return None
     clean_prices = sorted([p for p in prices if 10 < p < 500])
@@ -308,7 +323,7 @@ def generate_charts(stats, official_rate):
 
 def update_website_html(stats, official, timestamp, current_ads, grouped_ads, peg):
     prem = ((stats["median"] - official) / official) * 100 if official else 0
-    cache_buster = int(time.time()) # <--- FIX: Added back the variable definition
+    cache_buster = int(time.time())
     
     table_rows = ""
     for source, ads in grouped_ads.items():
@@ -332,13 +347,14 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             s_col = "#f3ba2f" if "Binance" in source else "#2e55e6"
             icon = "🟡" if "Binance" in source else "🔵"
             
+            # FORMATTING BASED ON EVENT TYPE
             if event["type"] == "new_request":
                 action = "<b style='color:#00bfff'>new request</b>"
                 bg = "#00bfff"
             elif event["type"] == "bought_all":
                 action = "<b style='color:#ff0055'>bought all (gone)</b>"
                 bg = "#ff0055"
-            else:
+            else: # partial_fill
                 action = "<b style='color:#2ea043'>bought partial</b>"
                 bg = "#2ea043"
             
@@ -374,7 +390,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     <head>
         <meta charset="UTF-8">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market Watch v35.1</title>
+        <title>ETB Inventory Tracker v35</title>
         <style>
             :root {{ --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }}
             [data-theme="light"] {{ --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; }}
@@ -401,8 +417,8 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     <body>
         <div class="container">
             <header>
-                <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// HYBRID ENGINE (SMART PARSER + INVENTORY DROPS) ///</div>
+                <h1>ETB INVENTORY TRACKER</h1>
+                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// TRACKING PARTIAL FILLS + LIFECYCLE ///</div>
                 <div class="toggle" onclick="toggleTheme()">🌓 Theme</div>
             </header>
             <div class="left-col">
@@ -444,16 +460,16 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     """
     with open(HTML_FILENAME, "w") as f: f.write(html)
 
-# --- 6. MAIN ---
+# --- 5. MAIN ---
 def main():
-    print("🔍 Running v35.1 (HYBRID ENGINE + FIX)...", file=sys.stderr)
+    print("🔍 Running v35.0 (TRUE INVENTORY TRACKING)...", file=sys.stderr)
     peg = fetch_usdt_peg() or 1.0
     
     print("   > Snapshot 1/2...", file=sys.stderr)
     snapshot_1 = capture_market_snapshot()
     snapshot_1 = remove_outliers(snapshot_1, peg)
     
-    print(f"   > ⏳ Waiting {BURST_WAIT_TIME}s...", file=sys.stderr)
+    print(f"   > ⏳ Waiting {BURST_WAIT_TIME}s for inventory changes...", file=sys.stderr)
     time.sleep(BURST_WAIT_TIME)
     
     print("   > Snapshot 2/2...", file=sys.stderr)
@@ -466,7 +482,8 @@ def main():
         if ad["source"] in grouped_ads: grouped_ads[ad["source"]].append(ad)
     
     if snapshot_2:
-        new_events = detect_hybrid_events(snapshot_1, snapshot_2, peg)
+        # ✅ NEW: Use detect_inventory_changes instead of simple lifecycle
+        new_events = detect_inventory_changes(snapshot_1, snapshot_2, peg)
         if new_events: save_trades(new_events)
         
         stats_prices = [ad["price"] for ad in snapshot_2 if ad["source"] != "Bybit"]
@@ -482,3 +499,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
