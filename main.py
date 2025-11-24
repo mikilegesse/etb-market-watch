@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v30.3 (MEXC Fetching Fixed)
-- FIX: Uses v16.0's proven MEXC/Binance fetching (simple parsing that works!)
-- KEEPS: All v30.2 inventory tracking logic (unchanged)
-- KEEPS: Two-snapshot approach with 30s wait
-- KEEPS: All grouping, history, and visualization logic
+🇪🇹 ETB Financial Terminal v30.4 (Real Trades Only)
+- REAL: Only shows actual detected inventory drops (NO simulation)
+- SOURCE: Each trade shows which exchange (Binance/MEXC)
+- WINDOW: 15-minute detection window (GitHub Actions runs every 5min)
+- CLEAN: Removed 30s double-snapshot approach
 """
 
 import requests
@@ -32,13 +32,16 @@ except ImportError:
 P2P_ARMY_KEY = "YJU5RCZ2-P6VTVNNA"
 HISTORY_FILE = "etb_history.csv"
 SNAPSHOT_FILE = "market_state.json"
+TRADES_FILE = "detected_trades.json"
 GRAPH_FILENAME = "etb_neon_terminal.png"
 GRAPH_LIGHT_FILENAME = "etb_light_terminal.png"
 HTML_FILENAME = "index.html"
-BURST_WAIT_TIME = 30  # Seconds to wait to detect sales
 
 # 5-minute cron → 12 points/hour → 24h ≈ 288 points
 HISTORY_POINTS = 288
+
+# Keep trades for last 15 minutes (3 runs)
+TRADE_RETENTION_MINUTES = 15
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -101,7 +104,7 @@ def fetch_binance_direct(trade_type: str):
                     "min": float(adv.get("minSingleTransAmount", 0)),
                     "max": float(adv.get("maxSingleTransAmount", 0))
                 })
-            if page >= 10:  # Max 200 ads
+            if page >= 10:
                 break
             page += 1
             time.sleep(0.2)
@@ -111,7 +114,7 @@ def fetch_binance_direct(trade_type: str):
 
 
 def fetch_bybit(side: str):
-    """Scrapes Bybit OTC (used for tape & table, but excluded from history)."""
+    """Scrapes Bybit OTC (for table display only, excluded from trades)."""
     url = "https://api2.bybit.com/fiat/otc/item/online"
     ads = []
     page = 1
@@ -158,10 +161,7 @@ def fetch_bybit(side: str):
 
 
 def fetch_p2p_army_ads(market: str, side: str):
-    """
-    ✅ FIXED: Uses v16.0's proven simple parsing approach that WORKS!
-    Returns ads from P2P.Army API for Binance & MEXC.
-    """
+    """Uses P2P.Army API for Binance & MEXC with v16.0's proven parsing."""
     url = "https://p2p.army/v1/api/get_p2p_order_book"
     h = HEADERS.copy()
     h["X-APIKEY"] = P2P_ARMY_KEY
@@ -178,14 +178,13 @@ def fetch_p2p_army_ads(market: str, side: str):
         r = requests.post(url, headers=h, json=payload, timeout=10)
         data = r.json()
         
-        # ✅ v16.0's proven parsing (simple sequential checks)
+        # ✅ v16.0's proven simple parsing
         candidates = data.get("result", data.get("data", data.get("ads", [])))
         
-        # Handle direct list response
         if not candidates and isinstance(data, list):
             candidates = data
         
-        # Normalize market name for consistent grouping
+        # Normalize market name
         market_lower = market.lower()
         if market_lower == "binance":
             source_name = "Binance"
@@ -209,17 +208,17 @@ def fetch_p2p_army_ads(market: str, side: str):
                 except Exception:
                     continue
         
-        print(f"   P2P.Army {source_name}: {len(clean)} ads", file=sys.stderr)
+        print(f"   ✅ {source_name}: {len(clean)} ads", file=sys.stderr)
         return clean
         
     except Exception as e:
-        print(f"   P2P.Army {market} error: {e}", file=sys.stderr)
+        print(f"   ❌ {market} error: {e}", file=sys.stderr)
         return []
 
 
-# --- 2. TAPE READER (REAL TRADES ONLY) ---
+# --- 2. MARKET SNAPSHOT ---
 def capture_market_snapshot():
-    """Gets data from ALL sources (Binance, MEXC, Bybit)."""
+    """Gets current market data from Binance, MEXC, Bybit."""
     with ThreadPoolExecutor(max_workers=10) as ex:
         f_bin_api = ex.submit(lambda: fetch_p2p_army_ads("binance", "SELL"))
         f_mexc = ex.submit(lambda: fetch_p2p_army_ads("mexc", "SELL"))
@@ -229,77 +228,133 @@ def capture_market_snapshot():
         mexc_data = f_mexc.result() or []
         bybit_data = f_byb.result() or []
 
-    # Fallback for Binance if API fails/blocks
+    # Fallback for Binance if API fails
     if not bin_data:
+        print("   > Binance API failed, trying direct scrape...", file=sys.stderr)
         bin_data = fetch_binance_direct("SELL")
 
     print(
-        f"   Snapshot sources → Binance: {len(bin_data)}, MEXC: {len(mexc_data)}, Bybit: {len(bybit_data)}",
+        f"   Snapshot → Binance: {len(bin_data)}, MEXC: {len(mexc_data)}, Bybit: {len(bybit_data)}",
         file=sys.stderr
     )
 
-    # Order doesn't matter for stats; we keep Bybit here for tape + table
     return bin_data + bybit_data + mexc_data
 
 
 def load_market_state():
+    """Load previous snapshot (from last GitHub Actions run ~5min ago)."""
     if os.path.exists(SNAPSHOT_FILE):
         try:
             with open(SNAPSHOT_FILE, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+                # Check if snapshot is too old (> 20 minutes)
+                timestamp = data.get("timestamp", 0)
+                age_minutes = (time.time() - timestamp) / 60
+                if age_minutes > 20:
+                    print(f"   ⚠️ Snapshot is {age_minutes:.1f} minutes old, resetting", file=sys.stderr)
+                    return {}
+                return data.get("state", {})
         except Exception:
             return {}
     return {}
 
 
 def save_market_state(current_ads):
+    """Save current snapshot with timestamp."""
     state = {}
     for ad in current_ads:
         key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
         state[key] = ad["available"]
+    
     with open(SNAPSHOT_FILE, "w") as f:
-        json.dump(state, f)
+        json.dump({
+            "timestamp": time.time(),
+            "state": state
+        }, f)
 
 
 def detect_real_trades(current_ads, peg):
     """
-    Compares Old vs New inventory.
-    If inventory drops, it's a CONFIRMED sale.
+    Detects REAL trades by comparing current vs previous inventory.
+    Only includes Binance and MEXC (Bybit excluded - no reliable API).
     """
     prev_state = load_market_state()
     trades = []
+    
+    if not prev_state:
+        print("   > No previous snapshot found (first run or reset)", file=sys.stderr)
+        return trades
 
     for ad in current_ads:
+        # 🚫 Skip Bybit (no reliable trade tracking)
+        if ad['source'].lower() == 'bybit':
+            continue
+        
         key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
         if key in prev_state:
             prev = prev_state[key]
             curr = ad["available"]
 
-            # Inventory Drop = Sale
+            # Inventory Drop = Confirmed Trade
             if curr < prev:
                 diff = prev - curr
+                # Only report significant trades (>10 USDT)
                 if diff > 10:
                     trades.append({
                         "type": "trade",
                         "source": ad["source"],
                         "user": ad["advertiser"],
                         "price": ad["price"] / peg,
-                        "vol_usd": diff
+                        "vol_usd": diff,
+                        "timestamp": time.time()
                     })
 
+    print(f"   > Detected {len(trades)} real trades", file=sys.stderr)
     return trades
+
+
+def load_recent_trades():
+    """Load trades from last 15 minutes."""
+    if not os.path.exists(TRADES_FILE):
+        return []
+    
+    try:
+        with open(TRADES_FILE, "r") as f:
+            all_trades = json.load(f)
+        
+        # Filter trades older than 15 minutes
+        cutoff = time.time() - (TRADE_RETENTION_MINUTES * 60)
+        recent = [t for t in all_trades if t.get("timestamp", 0) > cutoff]
+        
+        print(f"   > Loaded {len(recent)} recent trades (last 15min)", file=sys.stderr)
+        return recent
+    except Exception:
+        return []
+
+
+def save_trades(new_trades):
+    """Append new trades to history and keep last 15 minutes."""
+    recent = load_recent_trades()
+    
+    # Add new trades
+    all_trades = recent + new_trades
+    
+    # Keep only last 15 minutes
+    cutoff = time.time() - (TRADE_RETENTION_MINUTES * 60)
+    filtered = [t for t in all_trades if t.get("timestamp", 0) > cutoff]
+    
+    with open(TRADES_FILE, "w") as f:
+        json.dump(filtered, f)
+    
+    print(f"   > Saved {len(filtered)} trades to history", file=sys.stderr)
 
 
 # --- 3. ANALYTICS ---
 def analyze(prices, peg):
-    """
-    Basic stats on a list of ETB prices.
-    Returns values in "true ETB per USD" (divided by USDT peg).
-    """
+    """Stats on ETB prices (divided by USDT peg)."""
     if not prices:
         return None
 
-    # Filter out junk and SORT to fix min/max
     clean_prices = sorted(p for p in prices if 10 < p < 500)
     if len(clean_prices) < 2:
         return None
@@ -378,7 +433,7 @@ def load_history():
     )
 
 
-# --- 5. GRAPH GENERATOR (SUPER ZOOM) ---
+# --- 5. GRAPH GENERATOR ---
 def generate_charts(stats, official_rate):
     if not GRAPH_ENABLED:
         return
@@ -412,7 +467,6 @@ def generate_charts(stats, official_rate):
             y=0.97
         )
 
-        # Top: Live depth (Smart Zoom P05–P95)
         ax1 = fig.add_subplot(2, 1, 1)
         data = stats["raw_data"]
         y_jitter = [1 + random.uniform(-0.12, 0.12) for _ in data]
@@ -456,7 +510,6 @@ def generate_charts(stats, official_rate):
         ax1.set_title("Live Market Depth (Smart Zoom)", color=style["fg"], loc="left", pad=10)
         ax1.grid(True, axis="x", color=style["grid"], linestyle="--")
 
-        # Bottom: 24h history
         ax2 = fig.add_subplot(2, 1, 2)
         if len(dates) > 1:
             ax2.fill_between(dates, q1s, q3s, color=style["fill"], alpha=0.2, linewidth=0)
@@ -474,11 +527,11 @@ def generate_charts(stats, official_rate):
 
 
 # --- 6. WEB GENERATOR ---
-def update_website_html(stats, official, timestamp, actions, grouped_ads, peg):
+def update_website_html(stats, official, timestamp, grouped_ads, peg):
     prem = ((stats["median"] - official) / official) * 100 if official else 0
     cache_buster = int(time.time())
 
-    # Per-source snapshot table
+    # Table
     table_rows = ""
     for source, ads in grouped_ads.items():
         prices = [a["price"] for a in ads]
@@ -499,27 +552,52 @@ def update_website_html(stats, official, timestamp, actions, grouped_ads, peg):
                 f"<td colspan='6' style='opacity:0.5'>No Data</td></tr>"
             )
 
-    # Trade tape
+    # Real Trades Feed (last 15 minutes)
+    recent_trades = load_recent_trades()
     feed_html = ""
-    now_str = datetime.datetime.now().strftime("%H:%M")
 
-    if actions:
-        actions.sort(key=lambda x: x["vol_usd"], reverse=True)
-        for item in actions[:25]:
-            s_col = "#f3ba2f" if "Binance" in item["source"] else "#000" if "Bybit" in item["source"] else "#2e55e6"
+    if recent_trades:
+        # Sort by timestamp (newest first)
+        recent_trades.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+        
+        for trade in recent_trades[:30]:  # Show max 30 trades
+            timestamp = trade.get("timestamp", time.time())
+            trade_time = datetime.datetime.fromtimestamp(timestamp)
+            time_str = trade_time.strftime("%I:%M:%S %p")
+            
+            # Time ago
+            age_seconds = time.time() - timestamp
+            if age_seconds < 60:
+                age_str = f"{int(age_seconds)}s ago"
+            else:
+                age_str = f"{int(age_seconds/60)}min ago"
+            
+            # Source color
+            source = trade.get("source", "Unknown")
+            if "Binance" in source:
+                s_col = "#f3ba2f"
+                icon = "🟡"
+            elif "MEXC" in source:
+                s_col = "#2e55e6"
+                icon = "🔵"
+            else:
+                s_col = "#888"
+                icon = "⚪"
+            
             feed_html += f"""
             <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🛒</div>
+                <div class="feed-icon" style="background:#2ea043">{icon}</div>
                 <div class="feed-content">
-                    <span class="feed-ts">{now_str}</span> -> 
-                    <span class="feed-source" style="color:{s_col}">{item['source']}</span> 
-                    <span class="feed-user">{item['user'][:10]}</span> 
-                    <b style="color:#2ea043">BOUGHT</b> <span class="feed-vol">{item['vol_usd']:,.2f} USDT</span> 
-                    @ <span class="feed-price">{item['price']:.2f} ETB</span>
+                    <span class="feed-ts">{time_str}</span> <span style="color:#666">({age_str})</span> → 
+                    <span class="feed-source" style="color:{s_col};font-weight:bold">{source}</span>: 
+                    <span class="feed-user">{trade['user'][:15]}</span> 
+                    <b style="color:#2ea043">SOLD</b> 
+                    <span class="feed-vol">{trade['vol_usd']:,.2f} USDT</span> 
+                    @ <span class="feed-price">{trade['price']:.2f} ETB</span>
                 </div>
             </div>"""
     else:
-        feed_html = "<div class='feed-item' style='color:#888'>No active trades in last 30s window (Market Quiet).</div>"
+        feed_html = "<div class='feed-item' style='color:#888'>⏳ No trades detected in last 15 minutes. Trades will appear here when inventory drops are detected between GitHub Actions runs.</div>"
 
     html = f"""
     <!DOCTYPE html>
@@ -529,10 +607,10 @@ def update_website_html(stats, official, timestamp, actions, grouped_ads, peg):
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market Watch v30.3</title>
+        <title>ETB Market Watch v30.4</title>
         <style>
-            :root {{ --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; --hover: rgba(0,255,157,0.05); }}
-            [data-theme="light"] {{ --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; --hover: rgba(0,0,0,0.05); }}
+            :root {{ --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }}
+            [data-theme="light"] {{ --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; }}
             
             body {{ background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; margin: 0; padding: 20px; text-align: center; transition: 0.3s; }}
             .container {{ max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; text-align: left; }}
@@ -563,6 +641,7 @@ def update_website_html(stats, official, timestamp, actions, grouped_ads, peg):
             .feed-ts {{ color: var(--mute); font-family: monospace; }}
             .feed-user, .feed-price {{ font-weight: bold; color: var(--text); }}
             .feed-vol {{ font-weight: bold; color: var(--link); }}
+            .feed-source {{ font-weight: bold; }}
             
             footer {{ grid-column: span 2; margin-top: 40px; text-align: center; color: var(--mute); font-size: 0.7rem; }}
             @media (max-width: 900px) {{ .container {{ grid-template-columns: 1fr; }} header, footer {{ grid-column: span 1; }} .price {{ font-size: 3rem; }} }}
@@ -572,7 +651,7 @@ def update_website_html(stats, official, timestamp, actions, grouped_ads, peg):
         <div class="container">
             <header>
                 <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// LIVE P2P TAPE READER v30.3 ///</div>
+                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// REAL-TIME P2P TRACKER (15min window) ///</div>
                 <div class="toggle" onclick="toggleTheme()">🌓 Theme</div>
             </header>
 
@@ -597,12 +676,15 @@ def update_website_html(stats, official, timestamp, actions, grouped_ads, peg):
 
             <div class="right-col">
                 <div class="card">
-                    <div class="feed-title">📢 Real-Time Trades (Inventory Drops)</div>
+                    <div class="feed-title">🟡 Binance | 🔵 MEXC | Real Trades (Last 15min)</div>
                     <div class="feed-container">{feed_html}</div>
                 </div>
             </div>
 
-            <footer>Official Bank Rate: {official:.2f} ETB | Last Update: {timestamp} UTC</footer>
+            <footer>
+                Official Bank Rate: {official:.2f} ETB | Last Update: {timestamp} UTC | 
+                🔄 Updates every 5min via GitHub Actions
+            </footer>
         </div>
 
         <script>
@@ -634,37 +716,34 @@ def update_website_html(stats, official, timestamp, actions, grouped_ads, peg):
 
 # --- 7. MAIN ---
 def main():
-    print("🔍 Running v30.3 MEXC Fix Scan...", file=sys.stderr)
+    print("🔍 Running v30.4 Real Trades Only Scan...", file=sys.stderr)
 
-    # 1. SNAPSHOT 1
-    print("   > Snapshot 1/2...", file=sys.stderr)
-    snapshot_1 = capture_market_snapshot()
-
-    # 2. WAIT
-    print(f"   > Waiting {BURST_WAIT_TIME}s...", file=sys.stderr)
-    time.sleep(BURST_WAIT_TIME)
-
-    # 3. SNAPSHOT 2
-    print("   > Snapshot 2/2...", file=sys.stderr)
-    snapshot_2 = capture_market_snapshot()
-
+    # 1. Get current market snapshot
+    current_snapshot = capture_market_snapshot()
+    
     official = fetch_official_rate() or 0.0
     peg = fetch_usdt_peg() or 1.0
 
     # Group by source for table
     grouped_ads = {"Binance": [], "Bybit": [], "MEXC": []}
-    for ad in snapshot_2:
+    for ad in current_snapshot:
         src = ad.get("source")
         if src in grouped_ads:
             grouped_ads[src].append(ad)
 
-    if snapshot_2:
-        # Tape + inventory tracking uses ALL sources, including Bybit
-        real_actions = detect_real_trades(snapshot_2, peg)
-        save_market_state(snapshot_2)
+    if current_snapshot:
+        # Detect real trades (compares with snapshot from last run)
+        new_trades = detect_real_trades(current_snapshot, peg)
+        
+        # Save new trades to history
+        if new_trades:
+            save_trades(new_trades)
+        
+        # Save current snapshot for next run
+        save_market_state(current_snapshot)
 
         # Global stats & history EXCLUDE BYBIT
-        stats_prices = [ad["price"] for ad in snapshot_2 if ad.get("source") != "Bybit"]
+        stats_prices = [ad["price"] for ad in current_snapshot if ad.get("source") != "Bybit"]
         stats = analyze(stats_prices, peg) if stats_prices else None
 
         if stats:
@@ -674,12 +753,11 @@ def main():
                 stats,
                 official,
                 time.strftime("%Y-%m-%d %H:%M:%S"),
-                real_actions,
                 grouped_ads,
                 peg
             )
         else:
-            print("⚠️ Could not compute stats (not enough non-Bybit prices).", file=sys.stderr)
+            print("⚠️ Could not compute stats.", file=sys.stderr)
             fallback_stats = {
                 "median": 0, "q1": 0, "q3": 0,
                 "p05": 0, "p95": 0,
@@ -690,26 +768,11 @@ def main():
                 fallback_stats,
                 official,
                 time.strftime("%Y-%m-%d %H:%M:%S"),
-                real_actions,
                 grouped_ads,
                 peg
             )
     else:
         print("⚠️ CRITICAL: No ads found.", file=sys.stderr)
-        fallback_stats = {
-            "median": 0, "q1": 0, "q3": 0,
-            "p05": 0, "p95": 0,
-            "min": 0, "max": 0,
-            "raw_data": [], "count": 0
-        }
-        update_website_html(
-            fallback_stats,
-            official,
-            "ERROR",
-            [],
-            grouped_ads,
-            peg
-        )
 
     print("✅ Update Complete.", file=sys.stderr)
 
