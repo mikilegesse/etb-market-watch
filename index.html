@@ -6,7 +6,7 @@
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market Watch v30.6</title>
+        <title>ETB Market Watch v31</title>
         <style>
             :root { --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }
             [data-theme="light"] { --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; }
@@ -25,7 +25,7 @@
             .price { font-size: 4rem; font-weight: bold; color: var(--sub); margin: 10px 0; }
             .prem { color: var(--gold); font-size: 0.9rem; display: block; margin-top: 10px; }
             
-            .chart img { width: 100%; border-radius: 8px; display: block; border: 1px solid var(--border); transition: 0.3s; }
+            .chart img { width: 100%; border-radius: 8px; display: block; border: 1px solid var(--border); }
             
             table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
             th { text-align: left; padding: 12px; border-bottom: 2px solid var(--border); color: var(--text); }
@@ -40,7 +40,6 @@
             .feed-ts { color: var(--mute); font-family: monospace; }
             .feed-user, .feed-price { font-weight: bold; color: var(--text); }
             .feed-vol { font-weight: bold; color: var(--link); }
-            .feed-source { font-weight: bold; }
             
             footer { grid-column: span 2; margin-top: 40px; text-align: center; color: var(--mute); font-size: 0.7rem; }
             @media (max-width: 900px) { .container { grid-template-columns: 1fr; } header, footer { grid-column: span 1; } .price { font-size: 3rem; } }
@@ -50,43 +49,43 @@
         <div class="container">
             <header>
                 <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// BURST SCAN TAPE READER (60s window) ///</div>
+                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// CONTINUOUS MONITOR (16 checks x 15s) ///</div>
                 <div class="toggle" onclick="toggleTheme()">🌓 Theme</div>
             </header>
 
             <div class="left-col">
                 <div class="card ticker">
                     <div style="color:var(--mute); font-size:0.8rem; letter-spacing:2px;">TRUE USD MEDIAN</div>
-                    <div class="price">170.06 <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
-                    <span class="prem">Black Market Premium: +10.95%</span>
+                    <div class="price">172.61 <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
+                    <span class="prem">Black Market Premium: +12.61%</span>
                 </div>
                 <div class="card chart">
-                    <img src="etb_neon_terminal.png?v=1764005662" id="chartImg" alt="Market Chart">
+                    <img src="etb_neon_terminal.png?v=1764006578" id="chartImg" alt="Market Chart">
                 </div>
                 <div class="card">
                     <table>
                         <thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead>
-                        <tbody><tr><td class='source-col'>Binance</td><td>27.01</td><td>159.62</td><td class='med-col'>169.85</td><td>174.67</td><td>176.37</td><td>814</td></tr><tr><td>Bybit</td><td colspan='6' style='opacity:0.5'>No Data</td></tr><tr><td class='source-col'>MEXC</td><td>90.03</td><td>169.56</td><td class='med-col'>177.91</td><td>181.84</td><td>183.07</td><td>56</td></tr></tbody>
+                        <tbody><tr><td class='source-col'>Binance</td><td>145.05</td><td>160.65</td><td class='med-col'>172.19</td><td>174.67</td><td>176.37</td><td>733</td></tr><tr><td>Bybit</td><td colspan='6' style='opacity:0.5'>No Data</td></tr><tr><td class='source-col'>MEXC</td><td>146.30</td><td>172.58</td><td class='med-col'>178.14</td><td>182.09</td><td>183.26</td><td>52</td></tr></tbody>
                     </table>
                 </div>
             </div>
 
             <div class="right-col">
                 <div class="card">
-                    <div class="feed-title">🟡 Binance | 🔵 MEXC | ⚫ Bybit | Real Trades (60s)</div>
-                    <div class="feed-container"><div class='feed-item' style='color:#888'>⏳ No trades detected in 60s burst window (Market quiet or first run).</div></div>
+                    <div class="feed-title">🟡 Binance | 🔵 MEXC | Real Trades (This Run)</div>
+                    <div class="feed-container"><div class='feed-item' style='color:#888'>⏳ No trades detected during 4-minute monitoring window. Market was quiet.</div></div>
                 </div>
             </div>
 
             <footer>
-                Official Bank Rate: 153.28 ETB | Last Update: 2025-11-24 17:34:22 UTC | 
-                🔄 Burst Scan: 2 snapshots 60s apart
+                Official: 153.28 ETB | Last Update: 2025-11-24 17:49:38 UTC | 
+                Auto-filtered (removed bottom 10% outliers)
             </footer>
         </div>
 
         <script>
-            const imgDark = "etb_neon_terminal.png?v=1764005662";
-            const imgLight = "etb_light_terminal.png?v=1764005662";
+            const imgDark = "etb_neon_terminal.png?v=1764006578";
+            const imgLight = "etb_light_terminal.png?v=1764006578";
             const html = document.documentElement;
             
             (function() {
