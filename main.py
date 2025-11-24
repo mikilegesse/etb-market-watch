@@ -463,26 +463,41 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 </div>
             </div>"""
     else:
-        # Fallback: Show Best Live Offers
-        all_offers = [ad for ad in current_ads if ad["source"].lower() in ["binance", "mexc"] and ad["available"] > 10]
+        # Fallback: Show Best Live Offers (lowered threshold to 1 USDT)
+        all_offers = [ad for ad in current_ads if ad["source"].lower() in ["binance", "mexc"] and ad.get("available", 0) > 1]
         all_offers.sort(key=lambda x: x["price"] / peg)
         
-        feed_html = "<div style='color:#ffcc00;font-size:0.9rem;margin-bottom:10px;'>💡 No trades yet - Showing Best Live Offers (Lowest Prices)</div>"
-        
-        for offer in all_offers[:30]:
-            source = offer["source"]
-            s_col = "#f3ba2f" if "Binance" in source else "#2e55e6"
-            icon = "🟡" if "Binance" in source else "🔵"
+        if all_offers:
+            feed_html = f"<div style='color:#ffcc00;font-size:0.9rem;margin-bottom:10px;'>💡 No trades yet - Showing {len(all_offers[:30])} Best Live Offers (Lowest Prices)</div>"
             
-            feed_html += f"""
-            <div class="feed-item">
-                <div class="feed-icon" style="background:{s_col}">{icon}</div>
-                <div class="feed-content">
-                    <span class="feed-source" style="color:{s_col};font-weight:bold">{source}</span>: 
-                    <span class="feed-user">{offer['advertiser'][:15]}</span> 
-                    offering <span class="feed-vol">{offer['available']:,.0f} USDT</span> 
-                    @ <span class="feed-price">{offer['price']/peg:.2f} ETB</span>
-                </div>
+            for offer in all_offers[:30]:
+                try:
+                    source = offer.get("source", "Unknown")
+                    s_col = "#f3ba2f" if "Binance" in source else "#2e55e6"
+                    icon = "🟡" if "Binance" in source else "🔵"
+                    
+                    feed_html += f"""
+                    <div class="feed-item">
+                        <div class="feed-icon" style="background:{s_col}">{icon}</div>
+                        <div class="feed-content">
+                            <span class="feed-source" style="color:{s_col};font-weight:bold">{source}</span>: 
+                            <span class="feed-user">{offer.get('advertiser', 'Unknown')[:15]}</span> 
+                            offering <span class="feed-vol">{offer.get('available', 0):,.0f} USDT</span> 
+                            @ <span class="feed-price">{offer['price']/peg:.2f} ETB</span>
+                        </div>
+                    </div>"""
+                except Exception as e:
+                    continue
+        else:
+            # No offers at all - show debugging info
+            total_ads = len(current_ads)
+            binance_mexc = len([ad for ad in current_ads if ad.get("source", "").lower() in ["binance", "mexc"]])
+            feed_html = f"""
+            <div style='color:#ff6b6b;font-size:0.9rem;margin-bottom:10px;'>
+                ⚠️ No offers available<br>
+                Total ads: {total_ads}<br>
+                Binance/MEXC ads: {binance_mexc}<br>
+                (All may have low availability)
             </div>"""
     
     html = f"""
