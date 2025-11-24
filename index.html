@@ -3,248 +3,315 @@
     <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta http-equiv="refresh" content="300">
+        <meta http-equiv="refresh" content="60">
         <title>ETB Pro Terminal</title>
         <style>
-            :root { --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }
+            :root {
+                --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666;
+                --accent: #ff0055; --link: #00bfff; --gold: #ffcc00;
+                --border: #333; --hover: rgba(0, 255, 157, 0.05);
+            }
             body { background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; margin: 0; padding: 20px; text-align: center; }
             .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; text-align: left; }
+            
             header { grid-column: span 2; text-align: center; margin-bottom: 20px; }
             h1 { font-size: 2.5rem; margin: 0; text-shadow: 0 0 10px var(--text); }
-            .left-col, .right-col { display: flex; flex-direction: column; gap: 20px; }
+            
+            .left-col { display: flex; flex-direction: column; gap: 20px; }
+            .right-col { display: flex; flex-direction: column; gap: 20px; }
+
             .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
-            .ticker { text-align: center; padding: 30px; background: linear-gradient(180deg, #151515, #0a0a0a); border-top: 3px solid #ff0055; }
+            
+            /* Ticker */
+            .ticker { text-align: center; padding: 30px; background: linear-gradient(145deg, var(--card), var(--bg)); }
             .price { font-size: 4rem; font-weight: bold; color: var(--sub); margin: 10px 0; }
-            .trend-badge { font-size: 1.2rem; font-weight: bold; color: #ff0055; border: 1px solid #ff0055; padding: 5px 15px; border-radius: 20px; display: inline-block; margin-top: 10px; background: rgba(0,0,0,0.3); }
-            .prem { color: var(--gold); font-size: 0.9rem; display: block; margin-top: 10px; }
+            .prem { color: var(--gold); border: 1px solid var(--gold); padding: 4px 12px; border-radius: 20px; font-size: 0.9rem; }
+
             .chart img { width: 100%; border-radius: 8px; display: block; border: 1px solid var(--border); }
+
+            /* Table */
             table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
             th { text-align: left; padding: 12px; border-bottom: 2px solid var(--border); color: var(--text); }
             td { padding: 12px; border-bottom: 1px solid var(--border); color: var(--sub); }
-            .med-col { color: var(--sub); font-weight: bold; }
-            
-            /* FEED */
-            .feed-title { font-size: 1.1rem; font-weight: bold; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; color: var(--text); }
+            tr:last-child td { border-bottom: none; }
+
+            /* FEED STYLES (Transaction Mode) */
+            .feed-title { font-size: 1.1rem; font-weight: bold; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; color: #fff; display: flex; align-items: center; gap: 10px; }
             .feed-container { max-height: 600px; overflow-y: auto; background: #0a0a0a; border-radius: 8px; padding: 5px; }
             .feed-container::-webkit-scrollbar { width: 6px; }
             .feed-container::-webkit-scrollbar-thumb { background: var(--border); }
-            .feed-item { display: flex; gap: 12px; padding: 10px; border-bottom: 1px solid #222; align-items: center; }
-            .feed-icon { font-size: 1.2rem; }
-            .feed-content { font-size: 0.85rem; color: #ccc; }
-            .feed-ts { color: #666; font-family: monospace; }
-            .feed-source { font-weight: bold; }
-            .feed-price { font-weight: bold; color: #fff; background: #2ea043; padding: 2px 6px; border-radius: 4px; }
+
+            .feed-item { display: flex; gap: 12px; padding: 12px 10px; border-bottom: 1px solid #222; align-items: flex-start; font-family: sans-serif; background: #0e0e0e; margin-bottom: 2px; }
+            .feed-icon { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
+            .feed-content { font-size: 0.85rem; color: #ccc; line-height: 1.5; margin-top: 2px; }
+            .feed-ts { color: #00ff9d; font-family: monospace; font-weight:bold; }
+            .feed-user { font-weight: bold; color: #fff; }
+            .feed-vol { font-weight: bold; color: #fff; }
+            .feed-price { font-weight: bold; color: #fff; }
 
             footer { grid-column: span 2; margin-top: 40px; text-align: center; color: var(--mute); font-size: 0.7rem; }
-            @media (max-width: 900px) { .container { grid-template-columns: 1fr; } header, footer { grid-column: span 1; } }
+            
+            @media (max-width: 900px) { .container { grid-template-columns: 1fr; } header, footer { grid-column: span 1; } .price { font-size: 3rem; } }
         </style>
     </head>
     <body>
         <div class="container">
             <header>
                 <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// LIVE P2P LIQUIDITY SCANNER ///</div>
+                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// LIVE P2P ORDER BOOK SCANNER ///</div>
             </header>
+
             <div class="left-col">
                 <div class="card ticker">
                     <div style="color:var(--mute); font-size:0.8rem; letter-spacing:2px;">TRUE USD MEDIAN</div>
-                    <div class="price">155.66 <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
-                    <div class="trend-badge">▼ 11.74% (24h)</div>
-                    <span class="prem">Black Market Premium: +1.55%</span>
+                    <div class="price">176.37 <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
+                    <span class="prem">Premium: +15.07%</span>
                 </div>
-                <div class="card chart"><img src="etb_neon_terminal.png?v=1763962743" alt="Chart"></div>
+
+                <div class="card chart">
+                    <img src="etb_neon_terminal.png?v=1763962985" alt="Market Chart">
+                </div>
+
                 <div class="card">
-                    <table><thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead><tbody><tr><td>Binance</td><td colspan='6' style='opacity:0.5'>No Data</td></tr><tr><td class='source-col'>Bybit</td><td>130.10</td><td>145.05</td><td class='med-col'>155.66 <span style='color:#00ff9d'>▲</span></td><td>168.16</td><td>169.55</td><td>41</td></tr><tr><td>MEXC</td><td colspan='6' style='opacity:0.5'>No Data</td></tr></tbody></table>
+                    <table>
+                        <thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead>
+                        <tbody><tr><td style='font-weight:bold;color:#ccc'>Binance</td><td>176.20</td><td>176.37</td><td style='color:#ff0055;font-weight:bold'>176.37</td><td>176.37</td><td>176.38</td><td>100</td></tr><tr><td style='font-weight:bold;color:#ccc'>Bybit</td><td>167.71</td><td>167.81</td><td style='color:#ff0055;font-weight:bold'>167.92</td><td>168.03</td><td>168.14</td><td>2</td></tr><tr><td style='font-weight:bold;color:#ccc'>MEXC</td><td>90.04</td><td>155.06</td><td style='color:#ff0055;font-weight:bold'>176.08</td><td>182.29</td><td>183.10</td><td>39</td></tr></tbody>
+                    </table>
                 </div>
             </div>
+
             <div class="right-col">
                 <div class="card">
-                    <div class="feed-title">👀 Live Order Book (Real Data)</div>
+                    <div class="feed-title">📢 Real-Time Order Stream (Best Offers)</div>
                     <div class="feed-container">
+                        
             <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
                 <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">135.05 ETB</span>
+                    <span class="feed-ts">LIVE OFFER #1</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">90.00 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #2</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">123.77 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #3</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">123.77 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #4</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">130.00 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #5</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">131.51 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #6</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">139.24 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #7</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">140.00 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #8</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">146.25 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #9</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">150.00 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #10</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">150.00 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #11</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">160.00 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #12</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">160.00 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #13</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">163.00 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #121212; color: #fff;">⚫</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #14</span> -> 
+                    <span class="feed-user">Faruk@A</span> is selling USDT @ 
+                    <span class="feed-price">167.64 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 227-251 ETB | Bybit</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #121212; color: #fff;">⚫</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #15</span> -> 
+                    <span class="feed-user">Three Million</span> is selling USDT @ 
+                    <span class="feed-price">168.07 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 227-229 ETB | Bybit</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #16</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">170.00 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #17</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">170.08 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #18</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">173.00 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #19</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">174.55 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+
+            <div class="feed-item">
+                <div class="feed-icon" style="background-color: #2ea043; color: #fff;">🟢</div>
+                <div class="feed-content">
+                    <span class="feed-ts">LIVE OFFER #20</span> -> 
+                    <span class="feed-user">mexc User</span> is selling USDT @ 
+                    <span class="feed-price">175.00 ETB</span>.
+                    <br><span style="color:#666; font-size:0.8em;">Limit: 0-0 ETB | MEXC</span>
+                </div>
+            </div>
+            
+                    </div>
                 </div>
             </div>
 
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">135.05 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">135.10 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">135.25 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">140.05 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">141.60 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">144.77 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">145.05 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">145.06 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">147.05 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">150.17 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">150.67 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">150.76 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">153.06 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">155.06 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">155.56 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">155.61 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">155.66 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">158.47 ETB</span>
-                </div>
-            </div>
-
-            <div class="feed-item">
-                <div class="feed-icon">🏷️</div>
-                <div class="feed-content">
-                    <span class="feed-ts">05:39</span> -> 
-                    <span class="feed-source" style="color:#000000">Bybit</span> 
-                    Merchant listing at <span class="feed-price">160.37 ETB</span>
-                </div>
-            </div></div>
-                </div>
-            </div>
-            <footer>Official Bank Rate: 153.28 ETB | Last Update: 2025-11-24 05:39:03 UTC</footer>
+            <footer>
+                Official Bank Rate: 153.28 ETB | Last Update: 2025-11-24 05:43:05 UTC
+            </footer>
         </div>
     </body>
     </html>
