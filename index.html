@@ -6,10 +6,10 @@
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market Watch v30.3</title>
+        <title>ETB Market Watch v30.4</title>
         <style>
-            :root { --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; --hover: rgba(0,255,157,0.05); }
-            [data-theme="light"] { --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; --hover: rgba(0,0,0,0.05); }
+            :root { --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }
+            [data-theme="light"] { --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; }
             
             body { background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; margin: 0; padding: 20px; text-align: center; transition: 0.3s; }
             .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; text-align: left; }
@@ -40,6 +40,7 @@
             .feed-ts { color: var(--mute); font-family: monospace; }
             .feed-user, .feed-price { font-weight: bold; color: var(--text); }
             .feed-vol { font-weight: bold; color: var(--link); }
+            .feed-source { font-weight: bold; }
             
             footer { grid-column: span 2; margin-top: 40px; text-align: center; color: var(--mute); font-size: 0.7rem; }
             @media (max-width: 900px) { .container { grid-template-columns: 1fr; } header, footer { grid-column: span 1; } .price { font-size: 3rem; } }
@@ -49,42 +50,45 @@
         <div class="container">
             <header>
                 <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// LIVE P2P TAPE READER v30.3 ///</div>
+                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// REAL-TIME P2P TRACKER (15min window) ///</div>
                 <div class="toggle" onclick="toggleTheme()">🌓 Theme</div>
             </header>
 
             <div class="left-col">
                 <div class="card ticker">
                     <div style="color:var(--mute); font-size:0.8rem; letter-spacing:2px;">TRUE USD MEDIAN</div>
-                    <div class="price">176.32 <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
-                    <span class="prem">Black Market Premium: +15.03%</span>
+                    <div class="price">176.35 <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
+                    <span class="prem">Black Market Premium: +15.06%</span>
                 </div>
                 <div class="card chart">
-                    <img src="etb_neon_terminal.png?v=1764003629" id="chartImg" alt="Market Chart">
+                    <img src="etb_neon_terminal.png?v=1764004316" id="chartImg" alt="Market Chart">
                 </div>
                 <div class="card">
                     <table>
                         <thead>
                             <tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr>
                         </thead>
-                        <tbody><tr><td class='source-col'>Binance</td><td>175.58</td><td>176.31</td><td class='med-col'>176.32</td><td>176.32</td><td>176.33</td><td>100</td></tr><tr><td>Bybit</td><td colspan='6' style='opacity:0.5'>No Data</td></tr><tr><td class='source-col'>MEXC</td><td>90.01</td><td>165.98</td><td class='med-col'>177.52</td><td>181.11</td><td>183.18</td><td>50</td></tr></tbody>
+                        <tbody><tr><td class='source-col'>Binance</td><td>175.61</td><td>176.34</td><td class='med-col'>176.35</td><td>176.35</td><td>176.35</td><td>100</td></tr><tr><td>Bybit</td><td colspan='6' style='opacity:0.5'>No Data</td></tr><tr><td class='source-col'>MEXC</td><td>90.03</td><td>150.04</td><td class='med-col'>174.63</td><td>180.07</td><td>183.06</td><td>60</td></tr></tbody>
                     </table>
                 </div>
             </div>
 
             <div class="right-col">
                 <div class="card">
-                    <div class="feed-title">📢 Real-Time Trades (Inventory Drops)</div>
-                    <div class="feed-container"><div class='feed-item' style='color:#888'>No active trades in last 30s window (Market Quiet).</div></div>
+                    <div class="feed-title">🟡 Binance | 🔵 MEXC | Real Trades (Last 15min)</div>
+                    <div class="feed-container"><div class='feed-item' style='color:#888'>⏳ No trades detected in last 15 minutes. Trades will appear here when inventory drops are detected between GitHub Actions runs.</div></div>
                 </div>
             </div>
 
-            <footer>Official Bank Rate: 153.28 ETB | Last Update: 2025-11-24 17:00:29 UTC</footer>
+            <footer>
+                Official Bank Rate: 153.28 ETB | Last Update: 2025-11-24 17:11:56 UTC | 
+                🔄 Updates every 5min via GitHub Actions
+            </footer>
         </div>
 
         <script>
-            const imgDark = "etb_neon_terminal.png?v=1764003629";
-            const imgLight = "etb_light_terminal.png?v=1764003629";
+            const imgDark = "etb_neon_terminal.png?v=1764004316";
+            const imgLight = "etb_light_terminal.png?v=1764004316";
             const html = document.documentElement;
             
             (function() {
