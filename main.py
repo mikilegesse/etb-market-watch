@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v16.0 (Transaction Feed Final)
-- FEED: Now generates "User Transactions" instead of Merchant Offers.
-- STYLE: Matches the requested screenshot (Green icons, bold users).
-- FIX: Forced cache busting to ensure you see the new version.
+🇪🇹 ETB Financial Terminal v25.0 (Tape Reader Edition)
+- LOGIC: "Burst Scan" -> Fetches data, waits 60s, fetches again.
+- DETECTION: Compares inventory (Available Amount) changes to detect REAL trades.
+- FEED: Displays these confirmed market movements or Top Offers if quiet.
 """
 
 import requests
@@ -14,6 +14,7 @@ import csv
 import os
 import datetime
 import random
+import json
 from concurrent.futures import ThreadPoolExecutor
 
 # Try importing matplotlib
@@ -29,215 +30,17 @@ except ImportError:
 # --- CONFIGURATION ---
 P2P_ARMY_KEY = "YJU5RCZ2-P6VTVNNA"
 HISTORY_FILE = "etb_history.csv"
+STATE_FILE = "price_state.json"
 GRAPH_FILENAME = "etb_neon_terminal.png"
 HTML_FILENAME = "index.html"
+BURST_WAIT_TIME = 45 # Seconds to wait between snapshots to catch trades
 
-HEADERS = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Content-Type": "application/json"
+}
 
-# --- 1. ANALYTICS ---
-def analyze(prices, peg):
-    if not prices: return None
-    valid = sorted([p for p in prices if 50 < p < 400])
-    if len(valid) < 2: return None
-    
-    adj = [p / peg for p in valid]
-    n = len(adj)
-    
-    try:
-        quantiles = statistics.quantiles(adj, n=100, method='inclusive')
-        p10, q1, median, q3, p90 = quantiles[9], quantiles[24], quantiles[49], quantiles[74], quantiles[89]
-    except:
-        median = statistics.median(adj)
-        p10, q1, q3, p90 = adj[int(n*0.1)], adj[int(n*0.25)], adj[int(n*0.75)], adj[int(n*0.9)]
-
-    return {
-        "median": median, "q1": q1, "q3": q3, "p10": p10, "p90": p90, 
-        "min": adj[0], "max": adj[-1], "raw_data": adj, "count": n
-    }
-
-# --- 2. WEB GENERATOR ---
-def update_website_html(stats, official, timestamp, all_data_sources, peg):
-    prem = ((stats['median'] - official)/official)*100 if official else 0
-    cache_buster = int(time.time())
-    
-    # 1. Data Table
-    table_rows = ""
-    for source, prices in all_data_sources.items():
-        s = analyze(prices, peg)
-        if s:
-            table_rows += f"<tr><td style='font-weight:bold;color:#ccc'>{source}</td><td>{s['min']:.2f}</td><td>{s['q1']:.2f}</td><td style='color:#ff0055;font-weight:bold'>{s['median']:.2f}</td><td>{s['q3']:.2f}</td><td>{s['max']:.2f}</td><td>{s['count']}</td></tr>"
-        else:
-            table_rows += f"<tr><td>{source}</td><td colspan='6' style='opacity:0.5'>No Data</td></tr>"
-
-    # 2. Transaction Feed Generator
-    pool = []
-    median_price = stats['median']
-    
-    # Get realistic prices
-    for source, prices in all_data_sources.items():
-        for p in prices:
-            real_price = p / peg
-            # Filter scams (prices < 85% of median)
-            if real_price > (median_price * 0.85): 
-                pool.append(real_price)
-    
-    feed_items = []
-    now = datetime.datetime.now()
-    
-    if pool:
-        for i in range(15):
-            # Pick a realistic price
-            price = random.choice(pool)
-            
-            # Randomize time slightly (recent)
-            delta = random.randint(5, 600) + (i * 15)
-            trade_time = (now - datetime.timedelta(seconds=delta))
-            date_str = trade_time.strftime("%m/%d/%Y")
-            time_str = trade_time.strftime("%I:%M:%S %p")
-            
-            # Random User info to match screenshot style
-            user = f"{random.choice(['ETHIO', 'Trust', 'User-', 'Tinsa', 'Hayme', 'Real_', 'Sayid'])}***"
-            vol = round(random.uniform(100, 50000), 2)
-            
-            # Mix of action types
-            action_type = random.choice(["bought", "bought", "bought", "bought remaining", "requested"])
-            
-            # Icon logic
-            if "remaining" in action_type:
-                icon = "🤑" # Money face for big buy
-                icon_bg = "#2ea043"
-            elif "requested" in action_type:
-                icon = "❓"
-                icon_bg = "#d29922"
-            else:
-                icon = "🛒"
-                icon_bg = "#2ea043"
-
-            item_html = f"""
-            <div class="feed-item">
-                <div class="feed-icon" style="background-color: {icon_bg};">{icon}</div>
-                <div class="feed-content">
-                    <span class="feed-ts">{date_str}, {time_str}</span> -> 
-                    <span class="feed-user">{user}</span> (BUYER) {action_type} 
-                    <span class="feed-vol">{vol:,.2f} USD</span> at 
-                    <span class="feed-price">{price:.2f} ETB</span>.
-                </div>
-            </div>
-            """
-            feed_items.append(item_html)
-            
-        # Sort by newest first
-        # (Simple sort by reverse index since we generated them in order)
-    else:
-        feed_items.append("<div class='feed-item'>Waiting for market data...</div>")
-    
-    feed_html = "\n".join(feed_items)
-
-    html_content = f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta http-equiv="refresh" content="300">
-        <title>ETB Pro Terminal</title>
-        <style>
-            :root {{
-                --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666;
-                --accent: #ff0055; --link: #00bfff; --gold: #ffcc00;
-                --border: #333; --hover: rgba(0, 255, 157, 0.05);
-            }}
-            body {{ background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; margin: 0; padding: 20px; text-align: center; }}
-            .container {{ max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; text-align: left; }}
-            
-            header {{ grid-column: span 2; text-align: center; margin-bottom: 20px; }}
-            h1 {{ font-size: 2.5rem; margin: 0; text-shadow: 0 0 10px var(--text); }}
-            
-            .left-col {{ display: flex; flex-direction: column; gap: 20px; }}
-            .right-col {{ display: flex; flex-direction: column; gap: 20px; }}
-
-            .card {{ background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }}
-            
-            /* Ticker */
-            .ticker {{ text-align: center; padding: 30px; background: linear-gradient(145deg, var(--card), var(--bg)); }}
-            .price {{ font-size: 4rem; font-weight: bold; color: var(--sub); margin: 10px 0; }}
-            .prem {{ color: var(--gold); border: 1px solid var(--gold); padding: 4px 12px; border-radius: 20px; font-size: 0.9rem; }}
-
-            .chart img {{ width: 100%; border-radius: 8px; display: block; border: 1px solid var(--border); }}
-
-            /* Table */
-            table {{ width: 100%; border-collapse: collapse; font-size: 0.9rem; }}
-            th {{ text-align: left; padding: 12px; border-bottom: 2px solid var(--border); color: var(--text); }}
-            td {{ padding: 12px; border-bottom: 1px solid var(--border); color: var(--sub); }}
-            tr:last-child td {{ border-bottom: none; }}
-
-            /* FEED STYLES (Transaction Mode) */
-            .feed-title {{ font-size: 1.1rem; font-weight: bold; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; color: #fff; display: flex; align-items: center; gap: 10px; }}
-            .feed-container {{ max-height: 600px; overflow-y: auto; background: #0a0a0a; border-radius: 8px; padding: 5px; }}
-            .feed-container::-webkit-scrollbar {{ width: 6px; }}
-            .feed-container::-webkit-scrollbar-thumb {{ background: var(--border); }}
-
-            .feed-item {{ display: flex; gap: 12px; padding: 12px 10px; border-bottom: 1px solid #222; align-items: flex-start; font-family: sans-serif; background: #0e0e0e; margin-bottom: 2px; }}
-            .feed-icon {{ width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; color: white; }}
-            .feed-content {{ font-size: 0.85rem; color: #ccc; line-height: 1.5; margin-top: 2px; }}
-            .feed-ts {{ color: #666; font-family: monospace; }}
-            .feed-user {{ font-weight: bold; color: #fff; }}
-            .feed-vol {{ font-weight: bold; color: #fff; }}
-            .feed-price {{ font-weight: bold; color: #fff; }}
-
-            footer {{ grid-column: span 2; margin-top: 40px; text-align: center; color: var(--mute); font-size: 0.7rem; }}
-            
-            @media (max-width: 900px) {{ .container {{ grid-template-columns: 1fr; }} header, footer {{ grid-column: span 1; }} .price {{ font-size: 3rem; }} }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <header>
-                <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// LIVE P2P LIQUIDITY SCANNER ///</div>
-            </header>
-
-            <div class="left-col">
-                <div class="card ticker">
-                    <div style="color:var(--mute); font-size:0.8rem; letter-spacing:2px;">TRUE USD MEDIAN</div>
-                    <div class="price">{stats['median']:.2f} <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
-                    <span class="prem">Premium: +{prem:.2f}%</span>
-                </div>
-
-                <div class="card chart">
-                    <img src="{GRAPH_FILENAME}?v={cache_buster}" alt="Market Chart">
-                </div>
-
-                <div class="card">
-                    <table>
-                        <thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead>
-                        <tbody>{table_rows}</tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="right-col">
-                <div class="card">
-                    <div class="feed-title">👀 Recent Market Actions</div>
-                    <div class="feed-container">
-                        {feed_html}
-                    </div>
-                </div>
-            </div>
-
-            <footer>
-                Official Bank Rate: {official:.2f} ETB | Last Update: {timestamp} UTC
-            </footer>
-        </div>
-    </body>
-    </html>
-    """
-    
-    with open(HTML_FILENAME, "w") as f:
-        f.write(html_content)
-    print(f"✅ Website generated.")
-
-# --- 3. FETCHERS ---
+# --- 1. FETCHERS (Now returning Inventory Data) ---
 def fetch_official_rate():
     try: return float(requests.get("https://open.er-api.com/v6/latest/USD", timeout=5).json()["rates"]["ETB"])
     except: return None
@@ -246,45 +49,296 @@ def fetch_usdt_peg():
     try: return float(requests.get("https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd", timeout=5).json()["tether"]["usd"])
     except: return 1.00
 
+def fetch_binance_direct(trade_type):
+    url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+    ads = []
+    page = 1
+    payload = {
+        "asset": "USDT", "fiat": "ETB", "merchantCheck": False, 
+        "page": 1, "rows": 20, "tradeType": trade_type,
+        "payTypes": [], "countries": [], "publisherType": None, "clientType": "web"
+    }
+    while True:
+        try:
+            payload["page"] = page
+            r = requests.post(url, headers=HEADERS, json=payload, timeout=10)
+            data = r.json().get('data', [])
+            if not data: break
+            
+            for d in data:
+                adv = d.get('adv', {})
+                ads.append({
+                    'source': 'Binance',
+                    'advertiser': d.get('advertiser', {}).get('nickName', 'Binance User'),
+                    'price': float(adv.get('price')),
+                    'available': float(adv.get('surplusAmount', 0)), # Inventory
+                    'min': float(adv.get('minSingleTransAmount', 0)),
+                    'max': float(adv.get('maxSingleTransAmount', 0))
+                })
+            if page >= 3: break
+            page += 1
+            time.sleep(0.2)
+        except: break
+    return ads
+
 def fetch_bybit(side):
     url = "https://api2.bybit.com/fiat/otc/item/online"
-    prices, page = [], 1
+    ads = []
+    page = 1
     h = HEADERS.copy(); h["Referer"] = "https://www.bybit.com/"
     while True:
         try:
             r = requests.post(url, headers=h, json={"userId":"","tokenId":"USDT","currencyId":"ETB","payment":[],"side":side,"size":"20","page":str(page),"authMaker":False}, timeout=5)
             items = r.json().get("result", {}).get("items", [])
             if not items: break
-            prices.extend([float(i['price']) for i in items])
-            if page >= 5: break
+            
+            for i in items:
+                ads.append({
+                    'source': 'Bybit',
+                    'advertiser': i.get('nickName', 'Bybit User'),
+                    'price': float(i.get('price')),
+                    'available': float(i.get('lastQuantity', 0)), # Inventory
+                    'min': float(i.get('minAmount', 0)),
+                    'max': float(i.get('maxAmount', 0))
+                })
+            if page >= 3: break
             page += 1; time.sleep(0.1)
         except: break
-    return prices
+    return ads
 
-def fetch_p2p_army_ads(market, side):
+def fetch_mexc_api(side):
     url = "https://p2p.army/v1/api/get_p2p_order_book"
-    prices = []
+    ads = []
     h = HEADERS.copy(); h["X-APIKEY"] = P2P_ARMY_KEY
     try:
-        payload = {"market": market, "fiat": "ETB", "asset": "USDT", "side": side, "limit": 100}
-        r = requests.post(url, headers=h, json=payload, timeout=10)
-        data = r.json()
-        candidates = data.get("result", data.get("data", data.get("ads", [])))
-        if not candidates and isinstance(data, list): candidates = data
-        if candidates:
-            for ad in candidates:
-                if isinstance(ad, dict) and 'price' in ad: prices.append(float(ad['price']))
+        r = requests.post(url, headers=h, json={"market":"mexc","fiat":"ETB","asset":"USDT","side":side,"limit":100}, timeout=10)
+        data = r.json().get("result", {}).get("data", {}).get("ads", [])
+        for d in data:
+            ads.append({
+                'source': 'MEXC',
+                'advertiser': d.get('advertiser_name', 'MEXC User'),
+                'price': float(d.get('price')),
+                'available': float(d.get('available_amount', 0)), # Inventory
+                'min': float(d.get('min_amount', 0)),
+                'max': float(d.get('max_amount', 0))
+            })
     except: pass
-    return prices
+    return ads
 
-# --- 4. HISTORY ---
+# --- 2. TAPE READER LOGIC (Detect Trades) ---
+def capture_market_snapshot():
+    """ Fetches all data concurrently """
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        f_bin = ex.submit(lambda: fetch_binance_direct("SELL"))
+        f_byb = ex.submit(lambda: fetch_bybit("1"))
+        f_mexc = ex.submit(lambda: fetch_mexc_api("SELL"))
+        
+        res_bin = f_bin.result()
+        res_byb = f_byb.result()
+        res_mexc = f_mexc.result()
+        
+        # Flatten into one list
+        return res_bin + res_byb + res_mexc
+
+def detect_market_moves(old_snap, new_snap, peg):
+    """ Compares two snapshots to find sales """
+    actions = []
+    
+    # Convert old snapshot to dict for fast lookup: { 'Name+Price': available_amount }
+    old_map = {f"{x['advertiser']}_{x['price']}": x['available'] for x in old_snap}
+    
+    for new_ad in new_snap:
+        key = f"{new_ad['advertiser']}_{new_ad['price']}"
+        
+        if key in old_map:
+            old_amt = old_map[key]
+            new_amt = new_ad['available']
+            
+            # If inventory DROPPED, it's a SALE
+            if new_amt < old_amt:
+                diff = old_amt - new_amt
+                # Filter noise (tiny changes < 5 USDT might be rounding/fees)
+                if diff > 5: 
+                    actions.append({
+                        'type': 'trade',
+                        'source': new_ad['source'],
+                        'user': new_ad['advertiser'],
+                        'price': new_ad['price'],
+                        'vol_usd': diff, # Amount bought in USDT
+                        'vol_etb': diff * new_ad['price']
+                    })
+    
+    # If we found real trades, sort them by volume (Whales first)
+    if actions:
+        actions.sort(key=lambda x: x['vol_usd'], reverse=True)
+        return actions
+    
+    # FALLBACK: If market is dead (no trades in 60s), return Top Offers
+    # This ensures the feed is never empty
+    best_offers = sorted(new_snap, key=lambda x: x['price'])[:15]
+    for offer in best_offers:
+        actions.append({
+            'type': 'offer',
+            'source': offer['source'],
+            'user': offer['advertiser'],
+            'price': offer['price'],
+            'min': offer['min'],
+            'max': offer['max']
+        })
+    return actions
+
+# --- 3. ANALYTICS & STATE ---
+def analyze(ads, peg):
+    if not ads: return None
+    prices = [a['price'] for a in ads]
+    valid = sorted([p for p in prices if 50 < p < 400])
+    if len(valid) < 2: return None
+    adj = [p / peg for p in valid]
+    n = len(adj)
+    try:
+        quantiles = statistics.quantiles(adj, n=100, method='inclusive')
+        p10, q1, median, q3, p90 = quantiles[9], quantiles[24], quantiles[49], quantiles[74], quantiles[89]
+    except:
+        median = statistics.median(adj)
+        p10, q1, q3, p90 = adj[int(n*0.1)], adj[int(n*0.25)], adj[int(n*0.75)], adj[int(n*0.9)]
+    return {"median": median, "q1": q1, "q3": q3, "p10": p10, "p90": p90, "min": adj[0], "max": adj[-1], "raw_data": adj, "count": n}
+
+# --- 4. WEB GENERATOR ---
+def update_website_html(stats, official, timestamp, actions, all_ads, peg):
+    prem = ((stats['median'] - official)/official)*100 if official else 0
+    cache_buster = int(time.time())
+    
+    # Table
+    table_rows = ""
+    sources = ["Binance", "Bybit", "MEXC"]
+    for source in sources:
+        # Filter ads for this source
+        src_ads = [a['price'] for a in all_ads if a['source'] == source]
+        s = analyze(src_ads, peg)
+        if s:
+            table_rows += f"<tr><td class='source-col'>{source}</td><td>{s['min']:.2f}</td><td>{s['q1']:.2f}</td><td class='med-col'>{s['median']:.2f}</td><td>{s['q3']:.2f}</td><td>{s['max']:.2f}</td><td>{s['count']}</td></tr>"
+        else:
+            table_rows += f"<tr><td>{source}</td><td colspan='6' style='opacity:0.5'>No Data</td></tr>"
+
+    # Feed Generation
+    feed_html = ""
+    now_str = datetime.datetime.now().strftime("%H:%M")
+    
+    for item in actions[:15]: # Limit to top 15 items
+        if item['type'] == 'trade':
+            # IT IS A REAL TRADE
+            icon = "🛒"
+            icon_bg = "#2ea043" # Green
+            html_item = f"""
+            <div class="feed-item">
+                <div class="feed-icon" style="background:{icon_bg}">{icon}</div>
+                <div class="feed-content">
+                    <span class="feed-ts">{now_str}</span> -> 
+                    <span class="feed-source" style="color:#fff">{item['source']}</span>: 
+                    <span class="feed-user">{item['user'][:4]}***</span> 
+                    <b style="color:#2ea043">BOUGHT</b> 
+                    <span class="feed-vol">{item['vol_usd']:,.2f} USDT</span> 
+                    @ <span class="feed-price">{item['price']:.2f} ETB</span>
+                </div>
+            </div>
+            """
+        else:
+            # IT IS JUST AN OFFER (Market Quiet)
+            icon = "🏷️"
+            icon_bg = "#333" 
+            s_col = "#f3ba2f" if item['source'] == "Binance" else "#00bfff"
+            html_item = f"""
+            <div class="feed-item">
+                <div class="feed-icon" style="background:{icon_bg}">{icon}</div>
+                <div class="feed-content">
+                    <span class="feed-ts">{now_str}</span> -> 
+                    <span class="feed-source" style="color:{s_col}">{item['source']}</span> Offer: 
+                    <span class="feed-user">{item['user'][:10]}</span> listing @ 
+                    <span class="feed-price">{item['price']:.2f} ETB</span>
+                    <span style="color:#666; font-size:0.8em; display:block">Limit: {item['min']:,.0f} - {item['max']:,.0f} ETB</span>
+                </div>
+            </div>
+            """
+        feed_html += html_item
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="refresh" content="300">
+        <title>ETB Pro Terminal</title>
+        <style>
+            :root {{ --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }}
+            body {{ background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; margin: 0; padding: 20px; text-align: center; }}
+            .container {{ max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; text-align: left; }}
+            header {{ grid-column: span 2; text-align: center; margin-bottom: 20px; }}
+            h1 {{ font-size: 2.5rem; margin: 0; text-shadow: 0 0 10px var(--text); }}
+            .left-col, .right-col {{ display: flex; flex-direction: column; gap: 20px; }}
+            .card {{ background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }}
+            .ticker {{ text-align: center; padding: 30px; background: linear-gradient(180deg, #151515, #0a0a0a); border-top: 3px solid #ff0055; }}
+            .price {{ font-size: 4rem; font-weight: bold; color: var(--sub); margin: 10px 0; }}
+            .prem {{ color: var(--gold); font-size: 0.9rem; display: block; margin-top: 10px; }}
+            .chart img {{ width: 100%; border-radius: 8px; display: block; border: 1px solid var(--border); }}
+            table {{ width: 100%; border-collapse: collapse; font-size: 0.9rem; }}
+            th {{ text-align: left; padding: 12px; border-bottom: 2px solid var(--border); color: var(--text); }}
+            td {{ padding: 12px; border-bottom: 1px solid var(--border); color: var(--sub); }}
+            .med-col {{ color: var(--sub); font-weight: bold; }}
+            .feed-title {{ font-size: 1.1rem; font-weight: bold; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; color: var(--text); }}
+            .feed-container {{ max-height: 600px; overflow-y: auto; background: #0a0a0a; border-radius: 8px; padding: 5px; }}
+            .feed-container::-webkit-scrollbar {{ width: 6px; }}
+            .feed-container::-webkit-scrollbar-thumb {{ background: var(--border); }}
+            .feed-item {{ display: flex; gap: 12px; padding: 10px; border-bottom: 1px solid #222; align-items: center; }}
+            .feed-icon {{ width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }}
+            .feed-content {{ font-size: 0.85rem; color: #ccc; }}
+            .feed-ts {{ color: #00ff9d; font-weight: bold; font-family: monospace; }}
+            .feed-user {{ font-weight: bold; color: #fff; }}
+            .feed-vol {{ font-weight: bold; color: #fff; }}
+            .feed-price {{ font-weight: bold; color: #fff; }}
+            footer {{ grid-column: span 2; margin-top: 40px; text-align: center; color: var(--mute); font-size: 0.7rem; }}
+            @media (max-width: 900px) {{ .container {{ grid-template-columns: 1fr; }} header, footer {{ grid-column: span 1; }} .price {{ font-size: 3rem; }} }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <header>
+                <h1>ETB MARKET INTELLIGENCE</h1>
+                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// LIVE P2P TAPE READER ///</div>
+            </header>
+            <div class="left-col">
+                <div class="card ticker">
+                    <div style="color:var(--mute); font-size:0.8rem; letter-spacing:2px;">TRUE USD MEDIAN</div>
+                    <div class="price">{stats['median']:.2f} <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
+                    <span class="prem">Black Market Premium: +{prem:.2f}%</span>
+                </div>
+                <div class="card chart"><img src="{GRAPH_FILENAME}?v={cache_buster}" alt="Chart"></div>
+                <div class="card">
+                    <table><thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead><tbody>{table_rows}</tbody></table>
+                </div>
+            </div>
+            <div class="right-col">
+                <div class="card">
+                    <div class="feed-title">📢 Real-Time Tape (Trades & Quotes)</div>
+                    <div class="feed-container">{feed_html}</div>
+                </div>
+            </div>
+            <footer>Official Bank Rate: {official:.2f} ETB | Last Update: {timestamp} UTC</footer>
+        </div>
+    </body>
+    </html>
+    """
+    with open(HTML_FILENAME, "w") as f: f.write(html_content)
+    print(f"✅ Website generated.")
+
+# --- 5. HISTORY & GRAPH ---
 def save_to_history(stats, official):
     file_exists = os.path.isfile(HISTORY_FILE)
     with open(HISTORY_FILE, 'a', newline='') as f:
         w = csv.writer(f)
         if not file_exists: w.writerow(["Timestamp", "Median", "Q1", "Q3", "Official"])
         w.writerow([datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), round(stats['median'],2), round(stats['q1'],2), round(stats['q3'],2), round(official,2) if official else 0])
-
 def load_history():
     if not os.path.isfile(HISTORY_FILE): return [],[],[],[],[]
     d, m, q1, q3, off = [],[],[],[],[]
@@ -297,38 +351,27 @@ def load_history():
                 m.append(float(row[1])); q1.append(float(row[2])); q3.append(float(row[3])); off.append(float(row[4]))
             except: pass
     return d[-48:], m[-48:], q1[-48:], q3[-48:], off[-48:]
-
-# --- 5. GRAPH GENERATOR ---
 def generate_charts(stats, official_rate):
     if not GRAPH_ENABLED: return
     print(f"📊 Rendering Chart...", file=sys.stderr)
-    
     style = {"bg":"#050505","fg":"#00ff9d","grid":"#222","median":"#ff0055","sec":"#00bfff","fill":"#00ff9d"}
     dates, medians, q1s, q3s, offs = load_history()
-
     plt.rcParams.update({"figure.facecolor": style["bg"], "axes.facecolor": style["bg"], "axes.edgecolor": style["fg"], "axes.labelcolor": style["fg"], "xtick.color": style["fg"], "ytick.color": style["fg"], "text.color": style["fg"]})
     fig = plt.figure(figsize=(12, 14))
     fig.suptitle(f'ETB LIQUIDITY SCANNER: {datetime.datetime.now().strftime("%H:%M")}', fontsize=20, color=style["fg"], fontweight='bold', y=0.97)
-
     ax1 = fig.add_subplot(2, 1, 1)
-    data = stats['raw_data']
-    y_jitter = [1 + random.uniform(-0.12, 0.12) for _ in data]
+    data = stats['raw_data']; y_jitter = [1 + random.uniform(-0.12, 0.12) for _ in data]
     ax1.scatter(data, y_jitter, color=style["fg"], alpha=0.6, s=30, edgecolors='none')
     ax1.axvline(stats['median'], color=style["median"], linewidth=3)
     ax1.axvline(stats['q1'], color=style["sec"], linewidth=2, linestyle='--', alpha=0.6)
     ax1.axvline(stats['q3'], color=style["sec"], linewidth=2, linestyle='--', alpha=0.6)
-    
     ax1.text(stats['median'], 1.4, f"MEDIAN\n{stats['median']:.2f}", color=style["median"], ha='center', fontweight='bold')
-    ax1.text(stats['q1'], 0.6, f"Q1\n{stats['q1']:.2f}", color=style["sec"], ha='right', va='top')
-    ax1.text(stats['q3'], 0.6, f"Q3\n{stats['q3']:.2f}", color=style["sec"], ha='left', va='top')
-    
     if official_rate: ax1.axvline(official_rate, color=style["fg"], linestyle=':', linewidth=1.5)
     margin = (stats['p90'] - stats['p10']) * 0.25
     ax1.set_xlim([min(official_rate or 999, stats['p10']) - margin, stats['p90'] + margin])
     ax1.set_ylim(0.5, 1.5); ax1.set_yticks([])
     ax1.set_title("Live Market Depth", color=style["fg"], loc='left', pad=10)
     ax1.grid(True, axis='x', color=style["grid"], linestyle='--')
-
     ax2 = fig.add_subplot(2, 1, 2)
     if len(dates) > 1:
         ax2.fill_between(dates, q1s, q3s, color=style["fill"], alpha=0.2, linewidth=0)
@@ -339,27 +382,35 @@ def generate_charts(stats, official_rate):
         ax2.yaxis.tick_right()
         ax2.grid(True, color=style["grid"], linewidth=0.5)
         ax2.set_title("Historical Trend (24h)", color=style["fg"], loc='left')
-    
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.savefig(GRAPH_FILENAME, dpi=150, facecolor=style["bg"])
     plt.close()
 
 # --- 6. MAIN ---
 def main():
-    print("🔍 Running v16.0 Transaction Feed Scan...", file=sys.stderr)
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        f_bin = ex.submit(lambda: fetch_p2p_army_ads("binance", "SELL"))
-        f_mexc = ex.submit(lambda: fetch_p2p_army_ads("mexc", "SELL"))
-        f_byb = ex.submit(lambda: fetch_bybit("1") + fetch_bybit("0"))
-        f_off = ex.submit(fetch_official_rate)
-        f_peg = ex.submit(fetch_usdt_peg)
-        
-        data = {"Binance": f_bin.result(), "Bybit": f_byb.result(), "MEXC": f_mexc.result()}
-        official = f_off.result() or 0.0
-        peg = f_peg.result() or 1.0
-
-    visual_data = data["Binance"] + data["MEXC"]
-    stats = analyze(visual_data, peg)
+    print("🔍 Running v25.0 Tape Reader Scan...", file=sys.stderr)
+    
+    # 1. FETCH INITIAL STATE
+    print("   > Snapshot 1/2 (Base)...", file=sys.stderr)
+    snapshot_1 = capture_market_snapshot()
+    
+    # 2. WAIT FOR TRADES (The Trap)
+    print(f"   > Waiting {BURST_WAIT_TIME}s for market moves...", file=sys.stderr)
+    time.sleep(BURST_WAIT_TIME)
+    
+    # 3. FETCH FINAL STATE
+    print("   > Snapshot 2/2 (Compare)...", file=sys.stderr)
+    snapshot_2 = capture_market_snapshot()
+    
+    # 4. DETECT & GENERATE
+    official = fetch_official_rate() or 0.0
+    peg = fetch_usdt_peg() or 1.0
+    
+    # Use Snapshot 2 for current price stats
+    stats = analyze([x['price'] for x in snapshot_2], peg)
+    
+    # Analyze differences
+    actions = detect_market_moves(snapshot_1, snapshot_2, peg)
     
     if stats:
         save_to_history(stats, official)
@@ -367,7 +418,12 @@ def main():
     else:
         stats = {"median":0, "q1":0, "q3":0, "min":0, "max":0, "count":0, "raw_data":[]}
 
-    update_website_html(stats, official, time.strftime('%Y-%m-%d %H:%M:%S'), data, peg)
+    # Group ads for table
+    grouped_ads = {"Binance":[], "Bybit":[], "MEXC":[]}
+    for ad in snapshot_2:
+        if ad['source'] in grouped_ads: grouped_ads[ad['source']].append(ad)
+
+    update_website_html(stats, official, time.strftime('%Y-%m-%d %H:%M:%S'), actions, grouped_ads, peg)
     print("✅ Update Complete.")
 
 if __name__ == "__main__":
