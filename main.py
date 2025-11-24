@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v35.0 (HYBRID ENGINE)
-- BASE: v34.1 Smart Parser & Lifecycle Tracking.
-- ADDED: v29.1 "Inventory Drop" logic for Partial Fills.
-- RESULT: Detects New Ads, Removed Ads (Bought All), AND Volume Drops (Partial Buys).
+🇪🇹 ETB Financial Terminal v35.1 (HYBRID ENGINE + FIX)
+- FIX: Restored missing 'cache_buster' variable in HTML generator.
+- ENGINE: Smart Parser + Lifecycle Tracking + Inventory Drops.
+- RESULT: The ultimate tracking dashboard.
 """
 
 import requests
@@ -47,7 +47,7 @@ HEADERS = {
     "Accept": "application/json"
 }
 
-# --- 1. SMART PARSING LOGIC (Keep v34.1) ---
+# --- 1. SMART PARSING LOGIC ---
 def safe_get(data, keys, default=None):
     if isinstance(data, dict):
         for k in keys:
@@ -139,7 +139,7 @@ def fetch_p2p_army_ads(market, side):
         return clean[:MAX_ADS_PER_SOURCE]
     except: return []
 
-# --- 3. HYBRID LIFECYCLE ENGINE (THE MERGE) ---
+# --- 3. HYBRID LIFECYCLE ENGINE ---
 def fetch_usdt_peg():
     try: return float(requests.get("https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd", timeout=5).json()["tether"]["usd"])
     except: return 1.00
@@ -168,72 +168,44 @@ def remove_outliers(ads, peg):
     return [ad for ad in ads if (ad["price"] / peg) > p10_threshold]
 
 def detect_hybrid_events(snapshot_before, snapshot_after, peg):
-    """
-    Combines:
-    1. v34.1 (New/Gone IDs)
-    2. v29.1 (Inventory Drops on existing IDs)
-    """
     if not snapshot_before:
         print("   > First run - establishing baseline", file=sys.stderr)
         return []
     
-    # Map IDs to Ad Objects
     prev_ads = {ad['id']: ad for ad in snapshot_before if ad.get('source', '').lower() in ['binance', 'mexc']}
     curr_ads = {ad['id']: ad for ad in snapshot_after if ad.get('source', '').lower() in ['binance', 'mexc']}
     
     prev_ids = set(prev_ads.keys())
     curr_ids = set(curr_ads.keys())
     
-    # 1. Lifecycle: New & Gone
     new_ids = curr_ids - prev_ids 
     gone_ids = prev_ids - curr_ids
-    
-    # 2. Inventory: Common IDs
     common_ids = prev_ids.intersection(curr_ids)
     
     events = []
     
-    # TYPE A: New Requests (Appeared)
+    # TYPE A: New Requests
     for ad_id in new_ids:
         ad = curr_ads[ad_id]
         if ad['available'] > 5:
-            events.append({
-                "type": "new_request",
-                "source": ad['source'], "user": ad['advertiser'],
-                "price": ad['price'] / peg, "vol_usd": ad['available'],
-                "timestamp": time.time()
-            })
+            events.append({"type": "new_request", "source": ad['source'], "user": ad['advertiser'], "price": ad['price'] / peg, "vol_usd": ad['available'], "timestamp": time.time()})
             print(f"   🆕 NEW: {ad['source']} - {ad['advertiser']} req {ad['available']:,.0f} USDT", file=sys.stderr)
 
-    # TYPE B: Bought Remaining (Disappeared)
+    # TYPE B: Bought Remaining
     for ad_id in gone_ids:
         ad = prev_ads[ad_id]
         if ad['available'] > 5:
-            events.append({
-                "type": "bought_all",
-                "source": ad['source'], "user": ad['advertiser'],
-                "price": ad['price'] / peg, "vol_usd": ad['available'],
-                "timestamp": time.time()
-            })
+            events.append({"type": "bought_all", "source": ad['source'], "user": ad['advertiser'], "price": ad['price'] / peg, "vol_usd": ad['available'], "timestamp": time.time()})
             print(f"   ✅ BOUGHT ALL: {ad['source']} - {ad['advertiser']} bought {ad['available']:,.0f} USDT", file=sys.stderr)
 
-    # TYPE C: Partial Fill (Inventory Drop) - FROM v29.1
+    # TYPE C: Partial Fill (Inventory Drop)
     for ad_id in common_ids:
         prev_ad = prev_ads[ad_id]
         curr_ad = curr_ads[ad_id]
-        
-        # Check if inventory dropped
         if curr_ad['available'] < prev_ad['available']:
             diff = prev_ad['available'] - curr_ad['available']
-            
-            # Filter noise (must be > 5 USD drop)
             if diff > 5:
-                events.append({
-                    "type": "partial_fill",
-                    "source": curr_ad['source'], "user": curr_ad['advertiser'],
-                    "price": curr_ad['price'] / peg, "vol_usd": diff,
-                    "timestamp": time.time()
-                })
+                events.append({"type": "partial_fill", "source": curr_ad['source'], "user": curr_ad['advertiser'], "price": curr_ad['price'] / peg, "vol_usd": diff, "timestamp": time.time()})
                 print(f"   📉 PARTIAL: {curr_ad['source']} - {curr_ad['advertiser']} sold {diff:,.0f} USDT", file=sys.stderr)
 
     return events
@@ -336,6 +308,7 @@ def generate_charts(stats, official_rate):
 
 def update_website_html(stats, official, timestamp, current_ads, grouped_ads, peg):
     prem = ((stats["median"] - official) / official) * 100 if official else 0
+    cache_buster = int(time.time()) # <--- FIX: Added back the variable definition
     
     table_rows = ""
     for source, ads in grouped_ads.items():
@@ -359,14 +332,13 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             s_col = "#f3ba2f" if "Binance" in source else "#2e55e6"
             icon = "🟡" if "Binance" in source else "🔵"
             
-            # --- DISPLAY LOGIC ---
             if event["type"] == "new_request":
                 action = "<b style='color:#00bfff'>new request</b>"
                 bg = "#00bfff"
             elif event["type"] == "bought_all":
                 action = "<b style='color:#ff0055'>bought all (gone)</b>"
                 bg = "#ff0055"
-            else: # partial fill
+            else:
                 action = "<b style='color:#2ea043'>bought partial</b>"
                 bg = "#2ea043"
             
@@ -402,7 +374,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     <head>
         <meta charset="UTF-8">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market Watch v35.0</title>
+        <title>ETB Market Watch v35.1</title>
         <style>
             :root {{ --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }}
             [data-theme="light"] {{ --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; }}
@@ -474,7 +446,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
 
 # --- 6. MAIN ---
 def main():
-    print("🔍 Running v35.0 (HYBRID ENGINE)...", file=sys.stderr)
+    print("🔍 Running v35.1 (HYBRID ENGINE + FIX)...", file=sys.stderr)
     peg = fetch_usdt_peg() or 1.0
     
     print("   > Snapshot 1/2...", file=sys.stderr)
