@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v35.2 (Enhanced Filtering + Distribution)
-- DETECTION: v29.1's proven inventory tracking (available amount drops)
-- FILTERING: Remove lowest 10% from Binance & MEXC (unreliable offers)
-- DISTRIBUTION: 5 ETB price band analysis table
-- MEXC API: v16.0's proven method
-- DISPLAY: Modern feed with 1-hour history
+🇪🇹 ETB Financial Terminal v36.0 (Robinhood Edition)
+- UI/UX: Robinhood-inspired sleek interface
+- TRACKING: Both BUYERS and SELLERS (inventory increases + decreases)
+- INTERACTIVE: Time period filters (LIVE, 1D, 1W, 1M, 3M, YTD, 1Y)
+- ANIMATIONS: Smooth transitions, hover effects, arrow indicators
+- FILTERING: Smart outlier removal (bottom 10%)
 """
 
 import requests
@@ -41,8 +41,8 @@ HTML_FILENAME = "index.html"
 # v29.1's proven timing
 BURST_WAIT_TIME = 45
 
-# Show trades from last 1 HOUR
-TRADE_RETENTION_MINUTES = 60
+# Show trades from last 24 HOURS (not just 1 hour)
+TRADE_RETENTION_MINUTES = 1440  # 24 hours
 
 # Limit to 200 most recent ads per source
 MAX_ADS_PER_SOURCE = 200
@@ -144,12 +144,10 @@ def fetch_mexc_api(side):
     h["X-APIKEY"] = P2P_ARMY_KEY
     
     try:
-        # v16.0 uses limit: 100 (not MAX_ADS_PER_SOURCE)
         payload = {"market": "mexc", "fiat": "ETB", "asset": "USDT", "side": side, "limit": 100}
         r = requests.post(url, headers=h, json=payload, timeout=10)
         data = r.json()
         
-        # v16.0's exact parsing logic
         candidates = data.get("result", data.get("data", data.get("ads", [])))
         if not candidates and isinstance(data, list):
             candidates = data
@@ -173,7 +171,7 @@ def fetch_mexc_api(side):
     
     return ads
 
-# --- 2. INVENTORY TRACKING (v29.1 METHOD!) ---
+# --- 2. INVENTORY TRACKING (ENHANCED: BUYERS + SELLERS!) ---
 def capture_market_snapshot():
     with ThreadPoolExecutor(max_workers=10) as ex:
         f_bin = ex.submit(lambda: fetch_binance_direct("SELL"))
@@ -227,7 +225,6 @@ def save_market_state(current_ads):
     """Save current snapshot state to file"""
     state = {}
     for ad in current_ads:
-        # v29.1's key format: source_advertiser_price
         key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
         state[key] = ad['available']
     
@@ -236,9 +233,9 @@ def save_market_state(current_ads):
 
 def detect_real_trades(current_ads, peg):
     """
-    ✅ v29.1 METHOD: Track inventory drops
-    Compare previous state to current state
-    If available amount dropped → TRADE!
+    ✅ ENHANCED: Track BOTH buyers and sellers
+    - Inventory DROP → Someone SOLD
+    - Inventory INCREASE → Someone BOUGHT
     """
     prev_state = load_market_state()
     
@@ -253,28 +250,38 @@ def detect_real_trades(current_ads, peg):
         if ad['source'] not in ['Binance', 'MEXC']:
             continue
         
-        # v29.1's key format
         key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
         
         if key in prev_state:
             prev_inventory = prev_state[key]
             curr_inventory = ad['available']
             
-            # Inventory Drop = Trade!
-            if curr_inventory < prev_inventory:
-                diff = prev_inventory - curr_inventory
-                
-                # v29.1's threshold: 5 USDT minimum
-                if diff > 5:
-                    trades.append({
-                        'type': 'trade',
-                        'source': ad['source'],
-                        'user': ad['advertiser'],
-                        'price': ad['price'] / peg,
-                        'vol_usd': diff,
-                        'timestamp': time.time()
-                    })
-                    print(f"   ✅ TRADE: {ad['source']} - {ad['advertiser'][:15]} sold {diff:,.0f} USDT @ {ad['price']/peg:.2f} ETB", file=sys.stderr)
+            # Calculate difference
+            diff = abs(curr_inventory - prev_inventory)
+            
+            # SELL: Inventory dropped
+            if curr_inventory < prev_inventory and diff > 5:
+                trades.append({
+                    'type': 'sell',
+                    'source': ad['source'],
+                    'user': ad['advertiser'],
+                    'price': ad['price'] / peg,
+                    'vol_usd': diff,
+                    'timestamp': time.time()
+                })
+                print(f"   🔴 SELL: {ad['source']} - {ad['advertiser'][:15]} sold {diff:,.0f} USDT @ {ad['price']/peg:.2f} ETB", file=sys.stderr)
+            
+            # BUY: Inventory increased
+            elif curr_inventory > prev_inventory and diff > 5:
+                trades.append({
+                    'type': 'buy',
+                    'source': ad['source'],
+                    'user': ad['advertiser'],
+                    'price': ad['price'] / peg,
+                    'vol_usd': diff,
+                    'timestamp': time.time()
+                })
+                print(f"   🟢 BUY: {ad['source']} - {ad['advertiser'][:15]} bought {diff:,.0f} USDT @ {ad['price']/peg:.2f} ETB", file=sys.stderr)
     
     print(f"   > Detected {len(trades)} trades in {BURST_WAIT_TIME}s window", file=sys.stderr)
     return trades
@@ -290,7 +297,7 @@ def load_recent_trades():
         cutoff = time.time() - (TRADE_RETENTION_MINUTES * 60)
         recent = [t for t in all_trades if t.get("timestamp", 0) > cutoff]
         
-        print(f"   > Loaded {len(recent)} trades from last {TRADE_RETENTION_MINUTES} minutes", file=sys.stderr)
+        print(f"   > Loaded {len(recent)} trades from last 24h", file=sys.stderr)
         return recent
     except:
         return []
@@ -305,14 +312,13 @@ def save_trades(new_trades):
     with open(TRADES_FILE, "w") as f:
         json.dump(filtered, f)
     
-    print(f"   > Saved {len(filtered)} trades to history (last hour)", file=sys.stderr)
+    print(f"   > Saved {len(filtered)} trades to history (last 24h)", file=sys.stderr)
 
 # --- 3. ANALYTICS ---
 def analyze(prices, peg):
     if not prices:
         return None
     
-    # Handle both list of floats and list of dicts
     prices_float = []
     for item in prices:
         if isinstance(item, (int, float)):
@@ -346,7 +352,6 @@ def calculate_price_distribution(ads, peg, bin_size=5):
     if not ads:
         return []
     
-    # Get all prices in ETB
     prices = []
     for ad in ads:
         if isinstance(ad, dict) and 'price' in ad:
@@ -355,14 +360,8 @@ def calculate_price_distribution(ads, peg, bin_size=5):
     if not prices:
         return []
     
-    # Find min and max to determine range
-    min_price = min(prices)
-    max_price = max(prices)
-    
-    # Create bins (5 ETB bands)
     bins = {}
     for price in prices:
-        # Round down to nearest 5 ETB
         bin_start = int(price / bin_size) * bin_size
         bin_key = f"{bin_start}-{bin_start + bin_size}"
         
@@ -370,7 +369,6 @@ def calculate_price_distribution(ads, peg, bin_size=5):
             bins[bin_key] = 0
         bins[bin_key] += 1
     
-    # Sort by price range and return
     sorted_bins = sorted(bins.items(), key=lambda x: float(x[0].split('-')[0]))
     return sorted_bins
 
@@ -480,10 +478,23 @@ def generate_charts(stats, official_rate):
         plt.savefig(filename, dpi=150, facecolor=style["bg"])
         plt.close()
 
-# --- 6. WEB GENERATOR ---
+# --- 6. WEB GENERATOR (ROBINHOOD EDITION!) ---
 def update_website_html(stats, official, timestamp, current_ads, grouped_ads, peg):
     prem = ((stats["median"] - official) / official) * 100 if official else 0
     cache_buster = int(time.time())
+    
+    # Calculate price change (compare current to median from 1 day ago)
+    dates, medians, _, _, _ = load_history()
+    price_change = 0
+    price_change_pct = 0
+    if len(medians) > 0:
+        old_median = medians[0] if len(medians) > 0 else stats["median"]
+        price_change = stats["median"] - old_median
+        price_change_pct = (price_change / old_median * 100) if old_median > 0 else 0
+    
+    # Arrow direction
+    arrow = "↗" if price_change > 0 else "↘" if price_change < 0 else "→"
+    change_color = "#00C805" if price_change > 0 else "#FF3B30" if price_change < 0 else "#8E8E93"
     
     # Table 1: Source Summary
     table_rows = ""
@@ -495,80 +506,21 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         else:
             table_rows += f"<tr><td>{source}</td><td colspan='6' style='opacity:0.5'>No Data</td></tr>"
     
-    # Table 2: Price Distribution (5 ETB bands)
+    # Table 2: Price Distribution
     distribution = calculate_price_distribution(current_ads, peg, bin_size=5)
     dist_rows = ""
     if distribution:
         for price_range, count in distribution:
-            # Highlight the band with most ads
             max_count = max([c for _, c in distribution])
             style = "font-weight:bold;color:var(--accent)" if count == max_count else ""
             dist_rows += f"<tr><td style='{style}'>{price_range} ETB</td><td style='{style}'>{count}</td></tr>"
     else:
         dist_rows = "<tr><td colspan='2' style='opacity:0.5'>No Data</td></tr>"
     
-    # Feed
-    feed_html = ""
+    # Feed with time filters
     recent_trades = load_recent_trades()
     
-    if recent_trades:
-        recent_trades.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
-        
-        feed_html = f"<div style='color:#2ea043;font-size:0.9rem;margin-bottom:10px;'>✅ {len(recent_trades)} trades in last hour</div>"
-        
-        for trade in recent_trades[:30]:
-            ts = datetime.datetime.fromtimestamp(trade.get("timestamp", time.time()))
-            time_str = ts.strftime("%I:%M:%S %p")
-            age_seconds = time.time() - trade.get("timestamp", time.time())
-            age_str = f"{int(age_seconds/60)}min ago" if age_seconds >= 60 else f"{int(age_seconds)}s ago"
-            
-            source = trade["source"]
-            s_col = "#f3ba2f" if "Binance" in source else "#2e55e6"
-            icon = "🟡" if "Binance" in source else "🔵"
-            
-            feed_html += f"""
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">{icon}</div>
-                <div class="feed-content">
-                    <span class="feed-ts">{time_str}</span> <span style="color:#666">({age_str})</span> → 
-                    <span class="feed-source" style="color:{s_col};font-weight:bold">{source}</span>: 
-                    <span class="feed-user">{trade['user'][:15]}</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">{trade['vol_usd']:,.0f} USDT</span> 
-                    @ <span class="feed-price">{trade['price']:.2f} ETB</span>
-                </div>
-            </div>"""
-    else:
-        # Fallback: Show highest priced offers
-        all_offers = [ad for ad in current_ads if ad.get("source", "") in ["Binance", "MEXC"]]
-        all_offers.sort(key=lambda x: x.get("price", 0) / peg, reverse=True)
-        
-        if all_offers:
-            feed_html = f"<div style='color:#ffcc00;font-size:0.9rem;margin-bottom:10px;'>💡 No trades yet - Showing 30 Highest Priced Offers</div>"
-            
-            for offer in all_offers[:30]:
-                try:
-                    source = offer.get("source", "Unknown")
-                    s_col = "#f3ba2f" if "Binance" in source else "#2e55e6"
-                    icon = "🟡" if "Binance" in source else "🔵"
-                    
-                    avail = offer.get('available', 0)
-                    avail_str = f"{avail:,.1f}" if avail > 0 else "~"
-                    
-                    feed_html += f"""
-                    <div class="feed-item">
-                        <div class="feed-icon" style="background:{s_col}">{icon}</div>
-                        <div class="feed-content">
-                            <span class="feed-source" style="color:{s_col};font-weight:bold">{source}</span>: 
-                            <span class="feed-user">{offer.get('advertiser', 'Unknown')[:15]}</span> 
-                            offering <span class="feed-vol">{avail_str} USDT</span> 
-                            @ <span class="feed-price">{offer.get('price', 0)/peg:.2f} ETB</span>
-                        </div>
-                    </div>"""
-                except:
-                    continue
-        else:
-            feed_html = "<div style='color:#888;font-size:0.9rem;'>⏳ Waiting for market activity...</div>"
+    feed_html = generate_feed_html(recent_trades, peg)
     
     html = f"""
     <!DOCTYPE html>
@@ -578,109 +530,610 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market Watch v35.2</title>
+        <title>ETB Market v36 - Robinhood Edition</title>
         <style>
-            :root {{ --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }}
-            [data-theme="light"] {{ --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; }}
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
             
-            body {{ background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; margin: 0; padding: 20px; text-align: center; transition: 0.3s; }}
-            .container {{ max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; text-align: left; }}
+            :root {{
+                --bg: #000000;
+                --card: #1C1C1E;
+                --card-hover: #2C2C2E;
+                --text: #FFFFFF;
+                --text-secondary: #8E8E93;
+                --green: #00C805;
+                --red: #FF3B30;
+                --orange: #FF9500;
+                --border: #38383A;
+                --accent: #0A84FF;
+            }}
             
-            header {{ grid-column: span 2; text-align: center; margin-bottom: 20px; position: relative; }}
-            h1 {{ font-size: 2.5rem; margin: 0; text-shadow: 0 0 10px var(--text); }}
-            .toggle {{ position: absolute; top: 0; right: 0; cursor: pointer; padding: 8px 16px; border: 1px solid var(--border); border-radius: 20px; background: var(--card); color: var(--sub); font-size: 0.8rem; }}
+            [data-theme="light"] {{
+                --bg: #F2F2F7;
+                --card: #FFFFFF;
+                --card-hover: #F9F9F9;
+                --text: #000000;
+                --text-secondary: #8E8E93;
+                --green: #34C759;
+                --red: #FF3B30;
+                --orange: #FF9500;
+                --border: #C6C6C8;
+                --accent: #007AFF;
+            }}
             
-            .left-col, .right-col {{ display: flex; flex-direction: column; gap: 20px; }}
-            .card {{ background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }}
+            body {{
+                background: var(--bg);
+                color: var(--text);
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+                overflow-x: hidden;
+                transition: background 0.3s ease;
+            }}
             
-            .ticker {{ text-align: center; padding: 30px; background: linear-gradient(145deg, var(--card), var(--bg)); }}
-            .price {{ font-size: 4rem; font-weight: bold; color: var(--sub); margin: 10px 0; }}
-            .prem {{ color: var(--gold); font-size: 0.9rem; display: block; margin-top: 10px; }}
+            .container {{
+                max-width: 1400px;
+                margin: 0 auto;
+                padding: 20px;
+            }}
             
-            .chart img {{ width: 100%; border-radius: 8px; display: block; border: 1px solid var(--border); }}
+            /* HEADER */
+            header {{
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 20px 0;
+                border-bottom: 1px solid var(--border);
+                margin-bottom: 30px;
+            }}
             
-            table {{ width: 100%; border-collapse: collapse; font-size: 0.9rem; }}
-            th {{ text-align: left; padding: 12px; border-bottom: 2px solid var(--border); color: var(--text); }}
-            td {{ padding: 12px; border-bottom: 1px solid var(--border); color: var(--sub); }}
-            .source-col {{ font-weight: bold; color: var(--text); }} .med-col {{ color: var(--accent); font-weight: bold; }}
+            .logo {{
+                font-size: 24px;
+                font-weight: 700;
+                letter-spacing: -0.5px;
+            }}
             
-            .feed-title {{ font-size: 1.1rem; font-weight: bold; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; color: var(--text); }}
-            .feed-container {{ max-height: 600px; overflow-y: auto; padding-right: 5px; }}
-            .feed-item {{ display: flex; gap: 12px; padding: 10px; border-bottom: 1px solid var(--border); align-items: center; }}
-            .feed-icon {{ width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; color: #fff; }}
-            .feed-content {{ font-size: 0.85rem; color: var(--sub); }}
-            .feed-ts {{ color: var(--mute); font-family: monospace; }}
-            .feed-user, .feed-price {{ font-weight: bold; color: var(--text); }}
-            .feed-vol {{ font-weight: bold; color: var(--link); }}
+            .theme-toggle {{
+                background: var(--card);
+                border: 1px solid var(--border);
+                border-radius: 20px;
+                padding: 8px 16px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                color: var(--text);
+                font-size: 14px;
+            }}
             
-            footer {{ grid-column: span 2; margin-top: 40px; text-align: center; color: var(--mute); font-size: 0.7rem; }}
-            @media (max-width: 900px) {{ .container {{ grid-template-columns: 1fr; }} header, footer {{ grid-column: span 1; }} .price {{ font-size: 3rem; }} }}
+            .theme-toggle:hover {{
+                background: var(--card-hover);
+                transform: translateY(-1px);
+            }}
+            
+            /* MAIN GRID */
+            .main-grid {{
+                display: grid;
+                grid-template-columns: 1fr 400px;
+                gap: 20px;
+                margin-bottom: 30px;
+            }}
+            
+            /* PRICE CARD (Robinhood style) */
+            .price-card {{
+                background: var(--card);
+                border-radius: 16px;
+                padding: 30px;
+                border: 1px solid var(--border);
+                transition: all 0.3s ease;
+            }}
+            
+            .price-card:hover {{
+                border-color: var(--accent);
+                box-shadow: 0 8px 30px rgba(10, 132, 255, 0.15);
+            }}
+            
+            .price-label {{
+                color: var(--text-secondary);
+                font-size: 14px;
+                font-weight: 500;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                margin-bottom: 10px;
+            }}
+            
+            .price-value {{
+                font-size: 52px;
+                font-weight: 700;
+                letter-spacing: -2px;
+                margin-bottom: 15px;
+                line-height: 1;
+            }}
+            
+            .price-change {{
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 18px;
+                font-weight: 600;
+                padding: 6px 12px;
+                border-radius: 8px;
+                background: rgba(0, 200, 5, 0.1);
+            }}
+            
+            .price-change.negative {{
+                background: rgba(255, 59, 48, 0.1);
+                color: var(--red);
+            }}
+            
+            .price-change.positive {{
+                background: rgba(0, 200, 5, 0.1);
+                color: var(--green);
+            }}
+            
+            .arrow {{
+                font-size: 24px;
+                line-height: 1;
+            }}
+            
+            .premium-badge {{
+                display: inline-block;
+                background: linear-gradient(135deg, var(--orange), #FF6B00);
+                color: white;
+                padding: 8px 16px;
+                border-radius: 20px;
+                font-size: 13px;
+                font-weight: 600;
+                margin-top: 15px;
+            }}
+            
+            /* TIME PERIOD SELECTOR (Robinhood style) */
+            .time-selector {{
+                display: flex;
+                gap: 8px;
+                padding: 20px;
+                background: var(--card);
+                border-radius: 16px;
+                border: 1px solid var(--border);
+                overflow-x: auto;
+            }}
+            
+            .time-btn {{
+                background: transparent;
+                border: none;
+                color: var(--text-secondary);
+                padding: 8px 16px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: 600;
+                transition: all 0.2s ease;
+                white-space: nowrap;
+            }}
+            
+            .time-btn:hover {{
+                background: var(--card-hover);
+                color: var(--text);
+            }}
+            
+            .time-btn.active {{
+                background: var(--accent);
+                color: white;
+            }}
+            
+            /* CHART */
+            .chart-card {{
+                background: var(--card);
+                border-radius: 16px;
+                padding: 20px;
+                border: 1px solid var(--border);
+                margin-bottom: 20px;
+            }}
+            
+            .chart-card img {{
+                width: 100%;
+                border-radius: 12px;
+                display: block;
+            }}
+            
+            /* TABLES */
+            .table-card {{
+                background: var(--card);
+                border-radius: 16px;
+                padding: 20px;
+                border: 1px solid var(--border);
+                margin-bottom: 20px;
+            }}
+            
+            .table-card h3 {{
+                font-size: 18px;
+                font-weight: 700;
+                margin-bottom: 15px;
+                color: var(--text);
+            }}
+            
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 14px;
+            }}
+            
+            th {{
+                text-align: left;
+                padding: 12px;
+                color: var(--text-secondary);
+                font-weight: 600;
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                border-bottom: 1px solid var(--border);
+            }}
+            
+            td {{
+                padding: 12px;
+                color: var(--text);
+                border-bottom: 1px solid var(--border);
+            }}
+            
+            tr:last-child td {{
+                border-bottom: none;
+            }}
+            
+            .source-col {{
+                font-weight: 600;
+            }}
+            
+            .med-col {{
+                color: var(--accent);
+                font-weight: 700;
+            }}
+            
+            /* FEED PANEL */
+            .feed-panel {{
+                background: var(--card);
+                border-radius: 16px;
+                border: 1px solid var(--border);
+                height: fit-content;
+                position: sticky;
+                top: 20px;
+            }}
+            
+            .feed-header {{
+                padding: 20px;
+                border-bottom: 1px solid var(--border);
+            }}
+            
+            .feed-title {{
+                font-size: 18px;
+                font-weight: 700;
+                margin-bottom: 15px;
+            }}
+            
+            .feed-container {{
+                max-height: 600px;
+                overflow-y: auto;
+                padding: 10px;
+            }}
+            
+            .feed-container::-webkit-scrollbar {{
+                width: 6px;
+            }}
+            
+            .feed-container::-webkit-scrollbar-thumb {{
+                background: var(--border);
+                border-radius: 3px;
+            }}
+            
+            /* FEED ITEMS */
+            .feed-item {{
+                display: flex;
+                align-items: flex-start;
+                gap: 12px;
+                padding: 12px;
+                border-radius: 12px;
+                margin-bottom: 8px;
+                transition: all 0.2s ease;
+                cursor: pointer;
+            }}
+            
+            .feed-item:hover {{
+                background: var(--card-hover);
+            }}
+            
+            .feed-icon {{
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 18px;
+                flex-shrink: 0;
+                font-weight: 600;
+            }}
+            
+            .feed-icon.buy {{
+                background: rgba(0, 200, 5, 0.15);
+                color: var(--green);
+            }}
+            
+            .feed-icon.sell {{
+                background: rgba(255, 59, 48, 0.15);
+                color: var(--red);
+            }}
+            
+            .feed-content {{
+                flex: 1;
+                font-size: 13px;
+                line-height: 1.5;
+            }}
+            
+            .feed-meta {{
+                display: flex;
+                justify-content: space-between;
+                color: var(--text-secondary);
+                font-size: 12px;
+                margin-bottom: 4px;
+            }}
+            
+            .feed-text {{
+                color: var(--text);
+            }}
+            
+            .feed-user {{
+                font-weight: 600;
+                color: var(--text);
+            }}
+            
+            .feed-amount {{
+                font-weight: 700;
+                color: var(--accent);
+            }}
+            
+            .feed-price {{
+                font-weight: 600;
+            }}
+            
+            /* FOOTER */
+            footer {{
+                text-align: center;
+                padding: 30px 20px;
+                color: var(--text-secondary);
+                font-size: 13px;
+                border-top: 1px solid var(--border);
+                margin-top: 40px;
+            }}
+            
+            /* RESPONSIVE */
+            @media (max-width: 1024px) {{
+                .main-grid {{
+                    grid-template-columns: 1fr;
+                }}
+                
+                .feed-panel {{
+                    position: relative;
+                    top: 0;
+                }}
+                
+                .price-value {{
+                    font-size: 42px;
+                }}
+            }}
+            
+            /* ANIMATIONS */
+            @keyframes slideIn {{
+                from {{
+                    opacity: 0;
+                    transform: translateY(10px);
+                }}
+                to {{
+                    opacity: 1;
+                    transform: translateY(0);
+                }}
+            }}
+            
+            .feed-item {{
+                animation: slideIn 0.3s ease;
+            }}
         </style>
     </head>
     <body>
         <div class="container">
             <header>
-                <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// INVENTORY TRACKING + SMART FILTERING + DISTRIBUTION ///</div>
-                <div class="toggle" onclick="toggleTheme()">🌓 Theme</div>
+                <div class="logo">🇪🇹 ETB MARKET</div>
+                <button class="theme-toggle" onclick="toggleTheme()">
+                    <span id="theme-icon">🌙</span> Theme
+                </button>
             </header>
-
-            <div class="left-col">
-                <div class="card ticker">
-                    <div style="color:var(--mute); font-size:0.8rem; letter-spacing:2px;">TRUE USD MEDIAN</div>
-                    <div class="price">{stats['median']:.2f} <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
-                    <span class="prem">Black Market Premium: +{prem:.2f}%</span>
+            
+            <div class="main-grid">
+                <div class="left-column">
+                    <!-- PRICE CARD -->
+                    <div class="price-card">
+                        <div class="price-label">ETB/USD MEDIAN RATE</div>
+                        <div class="price-value">{stats['median']:.2f} <span style="font-size:28px;color:var(--text-secondary);font-weight:400">ETB</span></div>
+                        <div class="price-change {('positive' if price_change > 0 else 'negative' if price_change < 0 else '')}">
+                            <span class="arrow">{arrow}</span>
+                            <span>{abs(price_change):.2f} ETB ({abs(price_change_pct):.2f}%) Today</span>
+                        </div>
+                        <div class="premium-badge">
+                            Black Market Premium: +{prem:.2f}%
+                        </div>
+                    </div>
+                    
+                    <!-- TIME SELECTOR -->
+                    <div class="time-selector" style="margin-top: 20px;">
+                        <button class="time-btn active" data-period="live" onclick="filterTrades('live')">LIVE</button>
+                        <button class="time-btn" data-period="1h" onclick="filterTrades('1h')">1H</button>
+                        <button class="time-btn" data-period="1d" onclick="filterTrades('1d')">1D</button>
+                        <button class="time-btn" data-period="1w" onclick="filterTrades('1w')">1W</button>
+                        <button class="time-btn" data-period="1m" onclick="filterTrades('1m')">1M</button>
+                        <button class="time-btn" data-period="3m" onclick="filterTrades('3m')">3M</button>
+                        <button class="time-btn" data-period="ytd" onclick="filterTrades('ytd')">YTD</button>
+                        <button class="time-btn" data-period="1y" onclick="filterTrades('1y')">1Y</button>
+                    </div>
+                    
+                    <!-- CHART -->
+                    <div class="chart-card">
+                        <img src="{GRAPH_FILENAME}?v={cache_buster}" id="chartImg" alt="Market Chart">
+                    </div>
+                    
+                    <!-- TABLES -->
+                    <div class="table-card">
+                        <h3>Market Summary by Source</h3>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Source</th>
+                                    <th>Min</th>
+                                    <th>Q1</th>
+                                    <th>Med</th>
+                                    <th>Q3</th>
+                                    <th>Max</th>
+                                    <th>Ads</th>
+                                </tr>
+                            </thead>
+                            <tbody>{table_rows}</tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="table-card">
+                        <h3>📊 Price Distribution (5 ETB Bands)</h3>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Price Range</th>
+                                    <th>Ad Count</th>
+                                </tr>
+                            </thead>
+                            <tbody>{dist_rows}</tbody>
+                        </table>
+                    </div>
                 </div>
-                <div class="card chart">
-                    <img src="{GRAPH_FILENAME}?v={cache_buster}" id="chartImg" alt="Market Chart">
-                </div>
-                <div class="card">
-                    <h3 style="margin:0 0 15px 0; color:var(--text); font-size:1rem;">Market Summary by Source</h3>
-                    <table>
-                        <thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead>
-                        <tbody>{table_rows}</tbody>
-                    </table>
-                </div>
-                <div class="card">
-                    <h3 style="margin:0 0 15px 0; color:var(--text); font-size:1rem;">📊 Price Distribution (5 ETB Bands)</h3>
-                    <table>
-                        <thead><tr><th>Price Range</th><th>Ad Count</th></tr></thead>
-                        <tbody>{dist_rows}</tbody>
-                    </table>
+                
+                <!-- FEED PANEL -->
+                <div class="feed-panel">
+                    <div class="feed-header">
+                        <div class="feed-title">Market Activity</div>
+                        <div style="color:var(--text-secondary);font-size:13px;" id="feedStats">
+                            Loading...
+                        </div>
+                    </div>
+                    <div class="feed-container" id="feedContainer">
+                        {feed_html}
+                    </div>
                 </div>
             </div>
-
-            <div class="right-col">
-                <div class="card">
-                    <div class="feed-title">👀 Recent Market Actions</div>
-                    <div class="feed-container">{feed_html}</div>
-                </div>
-            </div>
-
+            
             <footer>
-                Official: {official:.2f} ETB | Last Update: {timestamp} UTC | 
-                Tracking inventory drops (45s window, 1hr history)
+                Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
+                v36.0 Robinhood Edition • Tracking inventory changes (45s window, 24h history)
             </footer>
         </div>
-
+        
         <script>
+            const allTrades = {json.dumps(recent_trades)};
             const imgDark = "{GRAPH_FILENAME}?v={cache_buster}";
             const imgLight = "{GRAPH_LIGHT_FILENAME}?v={cache_buster}";
-            const html = document.documentElement;
             
-            (function() {{
-                const theme = localStorage.getItem('theme') || 'dark';
-                html.setAttribute('data-theme', theme);
-                document.getElementById('chartImg').src = theme === 'light' ? imgLight : imgDark;
-            }})();
-
+            // Theme toggle
             function toggleTheme() {{
+                const html = document.documentElement;
                 const current = html.getAttribute('data-theme');
                 const next = current === 'light' ? 'dark' : 'light';
                 html.setAttribute('data-theme', next);
                 localStorage.setItem('theme', next);
                 document.getElementById('chartImg').src = next === 'light' ? imgLight : imgDark;
+                document.getElementById('theme-icon').textContent = next === 'light' ? '☀️' : '🌙';
             }}
+            
+            // Initialize theme
+            (function() {{
+                const theme = localStorage.getItem('theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', theme);
+                document.getElementById('chartImg').src = theme === 'light' ? imgLight : imgDark;
+                document.getElementById('theme-icon').textContent = theme === 'light' ? '☀️' : '🌙';
+            }})();
+            
+            // Filter trades by time period
+            function filterTrades(period) {{
+                // Update active button
+                document.querySelectorAll('.time-btn').forEach(btn => {{
+                    btn.classList.remove('active');
+                }});
+                document.querySelector(`[data-period="${{period}}"]`).classList.add('active');
+                
+                // Filter trades
+                const now = Date.now() / 1000;
+                let cutoff = 0;
+                
+                switch(period) {{
+                    case '1h': cutoff = now - 3600; break;
+                    case '1d': cutoff = now - 86400; break;
+                    case '1w': cutoff = now - 604800; break;
+                    case '1m': cutoff = now - 2592000; break;
+                    case '3m': cutoff = now - 7776000; break;
+                    case 'ytd': 
+                        const start = new Date(new Date().getFullYear(), 0, 1);
+                        cutoff = start.getTime() / 1000;
+                        break;
+                    case '1y': cutoff = now - 31536000; break;
+                    case 'live':
+                    default: cutoff = 0;
+                }}
+                
+                const filtered = allTrades.filter(t => t.timestamp > cutoff);
+                
+                // Update feed
+                renderFeed(filtered);
+                
+                // Update stats
+                const buys = filtered.filter(t => t.type === 'buy').length;
+                const sells = filtered.filter(t => t.type === 'sell').length;
+                document.getElementById('feedStats').innerHTML = 
+                    `<span style="color:var(--green)">🟢 ${{buys}} Buys</span> • <span style="color:var(--red)">🔴 ${{sells}} Sells</span>`;
+            }}
+            
+            function renderFeed(trades) {{
+                const container = document.getElementById('feedContainer');
+                
+                if (trades.length === 0) {{
+                    container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No trades in this period</div>';
+                    return;
+                }}
+                
+                const html = trades.slice(0, 50).reverse().map(trade => {{
+                    const date = new Date(trade.timestamp * 1000);
+                    const time = date.toLocaleTimeString('en-US', {{hour: '2-digit', minute: '2-digit'}});
+                    const ageMin = Math.floor((Date.now() / 1000 - trade.timestamp) / 60);
+                    const age = ageMin < 60 ? `${{ageMin}}m ago` : `${{Math.floor(ageMin/60)}}h ago`;
+                    
+                    const isBuy = trade.type === 'buy';
+                    const icon = isBuy ? '↗' : '↘';
+                    const action = isBuy ? 'BOUGHT' : 'SOLD';
+                    const color = isBuy ? 'var(--green)' : 'var(--red)';
+                    
+                    return `
+                        <div class="feed-item">
+                            <div class="feed-icon ${{trade.type}}">
+                                ${{icon}}
+                            </div>
+                            <div class="feed-content">
+                                <div class="feed-meta">
+                                    <span>${{time}}</span>
+                                    <span>${{age}}</span>
+                                </div>
+                                <div class="feed-text">
+                                    <span class="feed-user">${{trade.user.substring(0, 12)}}</span> (${{trade.source}})
+                                    <b style="color:${{color}}">${{action}}</b>
+                                    <span class="feed-amount">${{trade.vol_usd.toFixed(0)}} USDT</span>
+                                    @ <span class="feed-price">${{trade.price.toFixed(2)}} ETB</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }}).join('');
+                
+                container.innerHTML = html;
+            }}
+            
+            // Initialize
+            filterTrades('live');
         </script>
     </body>
     </html>
@@ -689,9 +1142,17 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     with open(HTML_FILENAME, "w") as f:
         f.write(html)
 
-# --- 7. MAIN (v29.1 BURST SCAN) ---
+def generate_feed_html(trades, peg):
+    """Generate initial feed HTML"""
+    if not trades:
+        return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">Waiting for market activity...</div>'
+    
+    # Will be overridden by JavaScript
+    return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">Loading...</div>'
+
+# --- 7. MAIN ---
 def main():
-    print("🔍 Running v35.2 (Smart Filtering + Distribution)...", file=sys.stderr)
+    print("🔍 Running v36.0 (Robinhood Edition - Buyers + Sellers)...", file=sys.stderr)
     
     # 1. SNAPSHOT 1
     print("   > Snapshot 1/2...", file=sys.stderr)
@@ -716,11 +1177,15 @@ def main():
         official = f_off.result() or 0.0
         peg = f_peg.result() or 1.0
     
+    # Filter outliers from snapshot 2 as well
+    bin_ads = remove_outliers(bin_ads, peg)
+    mexc_ads = remove_outliers(mexc_ads, peg)
+    
     snapshot_2 = bin_ads + byb_ads + mexc_ads
     grouped_ads = {"Binance": bin_ads, "Bybit": byb_ads, "MEXC": mexc_ads}
     
     if snapshot_2:
-        # v29.1 inventory tracking
+        # Enhanced tracking: buyers + sellers
         new_trades = detect_real_trades(snapshot_2, peg)
         
         # Save state for next run
@@ -747,7 +1212,9 @@ def main():
     else:
         print("⚠️ No ads found", file=sys.stderr)
     
-    print(f"✅ Complete! Detected {len(new_trades) if 'new_trades' in locals() else 0} trades this run.")
+    buys = len([t for t in (new_trades if 'new_trades' in locals() else []) if t.get('type') == 'buy'])
+    sells = len([t for t in (new_trades if 'new_trades' in locals() else []) if t.get('type') == 'sell'])
+    print(f"✅ Complete! Detected {buys} buys, {sells} sells this run.")
 
 if __name__ == "__main__":
     main()
