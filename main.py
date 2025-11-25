@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v37.4 (Color & Label Fixed)
-- FIX: Chart shows only LATEST label in bright cyan (not cluttered!)
-- FIX: Binance yellow 🟡, MEXC blue 🔵, OKX purple 🟣 (visible on dark!)
-- FIX: Source colors in ticker, feed, and tables all consistent
-- NEW: Statistics panel (Today/MTD/YTD/Overall totals)
+🇪🇹 ETB Financial Terminal v37.5 (Stats & Colors Fixed)
+- FIX: Table colors (green sources, pink median like screenshot 2)
+- FIX: Transaction stats separated (Buy vs Sell - no duplicate counting!)
+- NEW: Shows buy volume and sell volume separately
+- NEW: "Within 24 hrs" label on stats
+- NEW: Color-coded stat cards (green for buys, red for sells)
 - EXCHANGES: Binance, MEXC, OKX (all via p2p.army API)
 - TICKER: NYSE-style sliding rate ticker at top
-- CHARTS: Interactive tooltips + latest value label
+- CHARTS: Clean with only latest label
 - TRACKING: Buy + Sell with proper feed display
 - UI: Enhanced Robinhood-style interface
 """
@@ -439,10 +440,10 @@ def calculate_trade_stats(trades):
     year_start = datetime.datetime(now.year, 1, 1).timestamp()
     
     stats = {
-        'today_buys': 0, 'today_sells': 0, 'today_volume': 0,
-        'mtd_buys': 0, 'mtd_sells': 0, 'mtd_volume': 0,
-        'ytd_buys': 0, 'ytd_sells': 0, 'ytd_volume': 0,
-        'overall_buys': 0, 'overall_sells': 0, 'overall_volume': 0
+        'today_buys': 0, 'today_sells': 0, 'today_buy_volume': 0, 'today_sell_volume': 0,
+        'mtd_buys': 0, 'mtd_sells': 0, 'mtd_buy_volume': 0, 'mtd_sell_volume': 0,
+        'ytd_buys': 0, 'ytd_sells': 0, 'ytd_buy_volume': 0, 'ytd_sell_volume': 0,
+        'overall_buys': 0, 'overall_sells': 0, 'overall_buy_volume': 0, 'overall_sell_volume': 0
     }
     
     for trade in trades:
@@ -453,33 +454,37 @@ def calculate_trade_stats(trades):
         # Overall (all trades in 24h history)
         if trade_type == 'buy':
             stats['overall_buys'] += 1
+            stats['overall_buy_volume'] += vol
         elif trade_type == 'sell':
             stats['overall_sells'] += 1
-        stats['overall_volume'] += vol
+            stats['overall_sell_volume'] += vol
         
         # YTD
         if ts >= year_start:
             if trade_type == 'buy':
                 stats['ytd_buys'] += 1
+                stats['ytd_buy_volume'] += vol
             elif trade_type == 'sell':
                 stats['ytd_sells'] += 1
-            stats['ytd_volume'] += vol
+                stats['ytd_sell_volume'] += vol
         
         # MTD
         if ts >= month_start:
             if trade_type == 'buy':
                 stats['mtd_buys'] += 1
+                stats['mtd_buy_volume'] += vol
             elif trade_type == 'sell':
                 stats['mtd_sells'] += 1
-            stats['mtd_volume'] += vol
+                stats['mtd_sell_volume'] += vol
         
         # Today
         if ts >= today_start:
             if trade_type == 'buy':
                 stats['today_buys'] += 1
+                stats['today_buy_volume'] += vol
             elif trade_type == 'sell':
                 stats['today_sells'] += 1
-            stats['today_volume'] += vol
+                stats['today_sell_volume'] += vol
     
     return stats
 
@@ -554,16 +559,20 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     trade_stats = calculate_trade_stats(recent_trades)
     today_buys = trade_stats['today_buys']
     today_sells = trade_stats['today_sells']
-    today_volume = trade_stats['today_volume']
+    today_buy_volume = trade_stats['today_buy_volume']
+    today_sell_volume = trade_stats['today_sell_volume']
     mtd_buys = trade_stats['mtd_buys']
     mtd_sells = trade_stats['mtd_sells']
-    mtd_volume = trade_stats['mtd_volume']
+    mtd_buy_volume = trade_stats['mtd_buy_volume']
+    mtd_sell_volume = trade_stats['mtd_sell_volume']
     ytd_buys = trade_stats['ytd_buys']
     ytd_sells = trade_stats['ytd_sells']
-    ytd_volume = trade_stats['ytd_volume']
+    ytd_buy_volume = trade_stats['ytd_buy_volume']
+    ytd_sell_volume = trade_stats['ytd_sell_volume']
     overall_buys = trade_stats['overall_buys']
     overall_sells = trade_stats['overall_sells']
-    overall_volume = trade_stats['overall_volume']
+    overall_buy_volume = trade_stats['overall_buy_volume']
+    overall_sell_volume = trade_stats['overall_sell_volume']
     
     # Generate ticker HTML
     ticker_html = ""
@@ -884,10 +893,11 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             .source-col {{
                 font-weight: 600;
+                color: #00ff9d;  /* Green like terminal */
             }}
             
             .med-col {{
-                color: var(--accent);
+                color: #ff0066;  /* Pink/Magenta for median */
                 font-weight: 700;
             }}
             
@@ -1008,14 +1018,31 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 font-size: 18px;
                 font-weight: 700;
                 color: var(--text);
-                margin-bottom: 16px;
+                margin-bottom: 20px;
                 text-align: center;
+            }}
+            
+            .stats-section {{
+                margin-bottom: 24px;
+            }}
+            
+            .stats-section:last-child {{
+                margin-bottom: 0;
+            }}
+            
+            .stats-section-title {{
+                font-size: 16px;
+                font-weight: 600;
+                color: var(--text);
+                margin-bottom: 12px;
+                padding-bottom: 8px;
+                border-bottom: 1px solid var(--border);
             }}
             
             .stats-grid {{
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 16px;
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                gap: 12px;
             }}
             
             .stat-card {{
@@ -1027,10 +1054,26 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 transition: all 0.2s ease;
             }}
             
-            .stat-card:hover {{
+            .buy-card {{
+                background: rgba(0, 200, 5, 0.08);
+                border-color: rgba(0, 200, 5, 0.3);
+            }}
+            
+            .buy-card:hover {{
                 transform: translateY(-2px);
-                border-color: var(--accent);
-                box-shadow: 0 4px 12px rgba(10, 132, 255, 0.1);
+                border-color: #00C805;
+                box-shadow: 0 4px 12px rgba(0, 200, 5, 0.2);
+            }}
+            
+            .sell-card {{
+                background: rgba(255, 59, 48, 0.08);
+                border-color: rgba(255, 59, 48, 0.3);
+            }}
+            
+            .sell-card:hover {{
+                transform: translateY(-2px);
+                border-color: #FF3B30;
+                box-shadow: 0 4px 12px rgba(255, 59, 48, 0.2);
             }}
             
             .stat-label {{
@@ -1043,14 +1086,21 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             }}
             
             .stat-value {{
-                font-size: 20px;
+                font-size: 32px;
                 font-weight: 700;
-                color: var(--text);
                 margin-bottom: 6px;
             }}
             
+            .stat-value.green {{
+                color: #00C805;
+            }}
+            
+            .stat-value.red {{
+                color: #FF3B30;
+            }}
+            
             .stat-volume {{
-                font-size: 14px;
+                font-size: 13px;
                 color: #00bfff;
                 font-weight: 600;
             }}
@@ -1201,34 +1251,66 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             <!-- Transaction Statistics Panel -->
             <div class="stats-panel">
-                <div class="stats-title">Transaction Statistics</div>
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-label">Today</div>
-                        <div class="stat-value">{today_buys} 🟢 | {today_sells} 🔴</div>
-                        <div class="stat-volume">{today_volume:,.0f} USDT</div>
+                <div class="stats-title">Transaction Statistics (Within 24 hrs)</div>
+                
+                <!-- Buy Transactions -->
+                <div class="stats-section">
+                    <div class="stats-section-title">🟢 Buy Transactions</div>
+                    <div class="stats-grid">
+                        <div class="stat-card buy-card">
+                            <div class="stat-label">Today</div>
+                            <div class="stat-value green">{today_buys}</div>
+                            <div class="stat-volume">{today_buy_volume:,.0f} USDT</div>
+                        </div>
+                        <div class="stat-card buy-card">
+                            <div class="stat-label">MTD</div>
+                            <div class="stat-value green">{mtd_buys}</div>
+                            <div class="stat-volume">{mtd_buy_volume:,.0f} USDT</div>
+                        </div>
+                        <div class="stat-card buy-card">
+                            <div class="stat-label">YTD</div>
+                            <div class="stat-value green">{ytd_buys}</div>
+                            <div class="stat-volume">{ytd_buy_volume:,.0f} USDT</div>
+                        </div>
+                        <div class="stat-card buy-card">
+                            <div class="stat-label">Overall</div>
+                            <div class="stat-value green">{overall_buys}</div>
+                            <div class="stat-volume">{overall_buy_volume:,.0f} USDT</div>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-label">MTD (This Month)</div>
-                        <div class="stat-value">{mtd_buys} 🟢 | {mtd_sells} 🔴</div>
-                        <div class="stat-volume">{mtd_volume:,.0f} USDT</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">YTD (This Year)</div>
-                        <div class="stat-value">{ytd_buys} 🟢 | {ytd_sells} 🔴</div>
-                        <div class="stat-volume">{ytd_volume:,.0f} USDT</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Overall (24h)</div>
-                        <div class="stat-value">{overall_buys} 🟢 | {overall_sells} 🔴</div>
-                        <div class="stat-volume">{overall_volume:,.0f} USDT</div>
+                </div>
+                
+                <!-- Sell Transactions -->
+                <div class="stats-section">
+                    <div class="stats-section-title">🔴 Sell Transactions</div>
+                    <div class="stats-grid">
+                        <div class="stat-card sell-card">
+                            <div class="stat-label">Today</div>
+                            <div class="stat-value red">{today_sells}</div>
+                            <div class="stat-volume">{today_sell_volume:,.0f} USDT</div>
+                        </div>
+                        <div class="stat-card sell-card">
+                            <div class="stat-label">MTD</div>
+                            <div class="stat-value red">{mtd_sells}</div>
+                            <div class="stat-volume">{mtd_sell_volume:,.0f} USDT</div>
+                        </div>
+                        <div class="stat-card sell-card">
+                            <div class="stat-label">YTD</div>
+                            <div class="stat-value red">{ytd_sells}</div>
+                            <div class="stat-volume">{ytd_sell_volume:,.0f} USDT</div>
+                        </div>
+                        <div class="stat-card sell-card">
+                            <div class="stat-label">Overall</div>
+                            <div class="stat-value red">{overall_sells}</div>
+                            <div class="stat-volume">{overall_sell_volume:,.0f} USDT</div>
+                        </div>
                     </div>
                 </div>
             </div>
             
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v37.4 Color & Label Fixed • 🟡 Binance 🔵 MEXC 🟣 OKX • 45s tracking, 24h history
+                v37.5 Stats & Colors Fixed • 🟡 Binance 🔵 MEXC 🟣 OKX • Separate Buy/Sell tracking
             </footer>
         </div>
         
