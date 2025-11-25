@@ -6,439 +6,610 @@
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market Watch v35.2</title>
+        <title>ETB Market v36 - Robinhood Edition</title>
         <style>
-            :root { --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }
-            [data-theme="light"] { --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
             
-            body { background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; margin: 0; padding: 20px; text-align: center; transition: 0.3s; }
-            .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; text-align: left; }
+            :root {
+                --bg: #000000;
+                --card: #1C1C1E;
+                --card-hover: #2C2C2E;
+                --text: #FFFFFF;
+                --text-secondary: #8E8E93;
+                --green: #00C805;
+                --red: #FF3B30;
+                --orange: #FF9500;
+                --border: #38383A;
+                --accent: #0A84FF;
+            }
             
-            header { grid-column: span 2; text-align: center; margin-bottom: 20px; position: relative; }
-            h1 { font-size: 2.5rem; margin: 0; text-shadow: 0 0 10px var(--text); }
-            .toggle { position: absolute; top: 0; right: 0; cursor: pointer; padding: 8px 16px; border: 1px solid var(--border); border-radius: 20px; background: var(--card); color: var(--sub); font-size: 0.8rem; }
+            [data-theme="light"] {
+                --bg: #F2F2F7;
+                --card: #FFFFFF;
+                --card-hover: #F9F9F9;
+                --text: #000000;
+                --text-secondary: #8E8E93;
+                --green: #34C759;
+                --red: #FF3B30;
+                --orange: #FF9500;
+                --border: #C6C6C8;
+                --accent: #007AFF;
+            }
             
-            .left-col, .right-col { display: flex; flex-direction: column; gap: 20px; }
-            .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+            body {
+                background: var(--bg);
+                color: var(--text);
+                font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+                overflow-x: hidden;
+                transition: background 0.3s ease;
+            }
             
-            .ticker { text-align: center; padding: 30px; background: linear-gradient(145deg, var(--card), var(--bg)); }
-            .price { font-size: 4rem; font-weight: bold; color: var(--sub); margin: 10px 0; }
-            .prem { color: var(--gold); font-size: 0.9rem; display: block; margin-top: 10px; }
+            .container {
+                max-width: 1400px;
+                margin: 0 auto;
+                padding: 20px;
+            }
             
-            .chart img { width: 100%; border-radius: 8px; display: block; border: 1px solid var(--border); }
+            /* HEADER */
+            header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 20px 0;
+                border-bottom: 1px solid var(--border);
+                margin-bottom: 30px;
+            }
             
-            table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-            th { text-align: left; padding: 12px; border-bottom: 2px solid var(--border); color: var(--text); }
-            td { padding: 12px; border-bottom: 1px solid var(--border); color: var(--sub); }
-            .source-col { font-weight: bold; color: var(--text); } .med-col { color: var(--accent); font-weight: bold; }
+            .logo {
+                font-size: 24px;
+                font-weight: 700;
+                letter-spacing: -0.5px;
+            }
             
-            .feed-title { font-size: 1.1rem; font-weight: bold; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; color: var(--text); }
-            .feed-container { max-height: 600px; overflow-y: auto; padding-right: 5px; }
-            .feed-item { display: flex; gap: 12px; padding: 10px; border-bottom: 1px solid var(--border); align-items: center; }
-            .feed-icon { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; color: #fff; }
-            .feed-content { font-size: 0.85rem; color: var(--sub); }
-            .feed-ts { color: var(--mute); font-family: monospace; }
-            .feed-user, .feed-price { font-weight: bold; color: var(--text); }
-            .feed-vol { font-weight: bold; color: var(--link); }
+            .theme-toggle {
+                background: var(--card);
+                border: 1px solid var(--border);
+                border-radius: 20px;
+                padding: 8px 16px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                color: var(--text);
+                font-size: 14px;
+            }
             
-            footer { grid-column: span 2; margin-top: 40px; text-align: center; color: var(--mute); font-size: 0.7rem; }
-            @media (max-width: 900px) { .container { grid-template-columns: 1fr; } header, footer { grid-column: span 1; } .price { font-size: 3rem; } }
+            .theme-toggle:hover {
+                background: var(--card-hover);
+                transform: translateY(-1px);
+            }
+            
+            /* MAIN GRID */
+            .main-grid {
+                display: grid;
+                grid-template-columns: 1fr 400px;
+                gap: 20px;
+                margin-bottom: 30px;
+            }
+            
+            /* PRICE CARD (Robinhood style) */
+            .price-card {
+                background: var(--card);
+                border-radius: 16px;
+                padding: 30px;
+                border: 1px solid var(--border);
+                transition: all 0.3s ease;
+            }
+            
+            .price-card:hover {
+                border-color: var(--accent);
+                box-shadow: 0 8px 30px rgba(10, 132, 255, 0.15);
+            }
+            
+            .price-label {
+                color: var(--text-secondary);
+                font-size: 14px;
+                font-weight: 500;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                margin-bottom: 10px;
+            }
+            
+            .price-value {
+                font-size: 52px;
+                font-weight: 700;
+                letter-spacing: -2px;
+                margin-bottom: 15px;
+                line-height: 1;
+            }
+            
+            .price-change {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 18px;
+                font-weight: 600;
+                padding: 6px 12px;
+                border-radius: 8px;
+                background: rgba(0, 200, 5, 0.1);
+            }
+            
+            .price-change.negative {
+                background: rgba(255, 59, 48, 0.1);
+                color: var(--red);
+            }
+            
+            .price-change.positive {
+                background: rgba(0, 200, 5, 0.1);
+                color: var(--green);
+            }
+            
+            .arrow {
+                font-size: 24px;
+                line-height: 1;
+            }
+            
+            .premium-badge {
+                display: inline-block;
+                background: linear-gradient(135deg, var(--orange), #FF6B00);
+                color: white;
+                padding: 8px 16px;
+                border-radius: 20px;
+                font-size: 13px;
+                font-weight: 600;
+                margin-top: 15px;
+            }
+            
+            /* TIME PERIOD SELECTOR (Robinhood style) */
+            .time-selector {
+                display: flex;
+                gap: 8px;
+                padding: 20px;
+                background: var(--card);
+                border-radius: 16px;
+                border: 1px solid var(--border);
+                overflow-x: auto;
+            }
+            
+            .time-btn {
+                background: transparent;
+                border: none;
+                color: var(--text-secondary);
+                padding: 8px 16px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: 600;
+                transition: all 0.2s ease;
+                white-space: nowrap;
+            }
+            
+            .time-btn:hover {
+                background: var(--card-hover);
+                color: var(--text);
+            }
+            
+            .time-btn.active {
+                background: var(--accent);
+                color: white;
+            }
+            
+            /* CHART */
+            .chart-card {
+                background: var(--card);
+                border-radius: 16px;
+                padding: 20px;
+                border: 1px solid var(--border);
+                margin-bottom: 20px;
+            }
+            
+            .chart-card img {
+                width: 100%;
+                border-radius: 12px;
+                display: block;
+            }
+            
+            /* TABLES */
+            .table-card {
+                background: var(--card);
+                border-radius: 16px;
+                padding: 20px;
+                border: 1px solid var(--border);
+                margin-bottom: 20px;
+            }
+            
+            .table-card h3 {
+                font-size: 18px;
+                font-weight: 700;
+                margin-bottom: 15px;
+                color: var(--text);
+            }
+            
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 14px;
+            }
+            
+            th {
+                text-align: left;
+                padding: 12px;
+                color: var(--text-secondary);
+                font-weight: 600;
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                border-bottom: 1px solid var(--border);
+            }
+            
+            td {
+                padding: 12px;
+                color: var(--text);
+                border-bottom: 1px solid var(--border);
+            }
+            
+            tr:last-child td {
+                border-bottom: none;
+            }
+            
+            .source-col {
+                font-weight: 600;
+            }
+            
+            .med-col {
+                color: var(--accent);
+                font-weight: 700;
+            }
+            
+            /* FEED PANEL */
+            .feed-panel {
+                background: var(--card);
+                border-radius: 16px;
+                border: 1px solid var(--border);
+                height: fit-content;
+                position: sticky;
+                top: 20px;
+            }
+            
+            .feed-header {
+                padding: 20px;
+                border-bottom: 1px solid var(--border);
+            }
+            
+            .feed-title {
+                font-size: 18px;
+                font-weight: 700;
+                margin-bottom: 15px;
+            }
+            
+            .feed-container {
+                max-height: 600px;
+                overflow-y: auto;
+                padding: 10px;
+            }
+            
+            .feed-container::-webkit-scrollbar {
+                width: 6px;
+            }
+            
+            .feed-container::-webkit-scrollbar-thumb {
+                background: var(--border);
+                border-radius: 3px;
+            }
+            
+            /* FEED ITEMS */
+            .feed-item {
+                display: flex;
+                align-items: flex-start;
+                gap: 12px;
+                padding: 12px;
+                border-radius: 12px;
+                margin-bottom: 8px;
+                transition: all 0.2s ease;
+                cursor: pointer;
+            }
+            
+            .feed-item:hover {
+                background: var(--card-hover);
+            }
+            
+            .feed-icon {
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 18px;
+                flex-shrink: 0;
+                font-weight: 600;
+            }
+            
+            .feed-icon.buy {
+                background: rgba(0, 200, 5, 0.15);
+                color: var(--green);
+            }
+            
+            .feed-icon.sell {
+                background: rgba(255, 59, 48, 0.15);
+                color: var(--red);
+            }
+            
+            .feed-content {
+                flex: 1;
+                font-size: 13px;
+                line-height: 1.5;
+            }
+            
+            .feed-meta {
+                display: flex;
+                justify-content: space-between;
+                color: var(--text-secondary);
+                font-size: 12px;
+                margin-bottom: 4px;
+            }
+            
+            .feed-text {
+                color: var(--text);
+            }
+            
+            .feed-user {
+                font-weight: 600;
+                color: var(--text);
+            }
+            
+            .feed-amount {
+                font-weight: 700;
+                color: var(--accent);
+            }
+            
+            .feed-price {
+                font-weight: 600;
+            }
+            
+            /* FOOTER */
+            footer {
+                text-align: center;
+                padding: 30px 20px;
+                color: var(--text-secondary);
+                font-size: 13px;
+                border-top: 1px solid var(--border);
+                margin-top: 40px;
+            }
+            
+            /* RESPONSIVE */
+            @media (max-width: 1024px) {
+                .main-grid {
+                    grid-template-columns: 1fr;
+                }
+                
+                .feed-panel {
+                    position: relative;
+                    top: 0;
+                }
+                
+                .price-value {
+                    font-size: 42px;
+                }
+            }
+            
+            /* ANIMATIONS */
+            @keyframes slideIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(10px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+            
+            .feed-item {
+                animation: slideIn 0.3s ease;
+            }
         </style>
     </head>
     <body>
         <div class="container">
             <header>
-                <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// INVENTORY TRACKING + SMART FILTERING + DISTRIBUTION ///</div>
-                <div class="toggle" onclick="toggleTheme()">🌓 Theme</div>
+                <div class="logo">🇪🇹 ETB MARKET</div>
+                <button class="theme-toggle" onclick="toggleTheme()">
+                    <span id="theme-icon">🌙</span> Theme
+                </button>
             </header>
-
-            <div class="left-col">
-                <div class="card ticker">
-                    <div style="color:var(--mute); font-size:0.8rem; letter-spacing:2px;">TRUE USD MEDIAN</div>
-                    <div class="price">175.61 <span style="font-size:1.5rem;color:var(--mute)">ETB</span></div>
-                    <span class="prem">Black Market Premium: +14.47%</span>
+            
+            <div class="main-grid">
+                <div class="left-column">
+                    <!-- PRICE CARD -->
+                    <div class="price-card">
+                        <div class="price-label">ETB/USD MEDIAN RATE</div>
+                        <div class="price-value">176.31 <span style="font-size:28px;color:var(--text-secondary);font-weight:400">ETB</span></div>
+                        <div class="price-change negative">
+                            <span class="arrow">↘</span>
+                            <span>0.06 ETB (0.03%) Today</span>
+                        </div>
+                        <div class="premium-badge">
+                            Black Market Premium: +14.93%
+                        </div>
+                    </div>
+                    
+                    <!-- TIME SELECTOR -->
+                    <div class="time-selector" style="margin-top: 20px;">
+                        <button class="time-btn active" data-period="live" onclick="filterTrades('live')">LIVE</button>
+                        <button class="time-btn" data-period="1h" onclick="filterTrades('1h')">1H</button>
+                        <button class="time-btn" data-period="1d" onclick="filterTrades('1d')">1D</button>
+                        <button class="time-btn" data-period="1w" onclick="filterTrades('1w')">1W</button>
+                        <button class="time-btn" data-period="1m" onclick="filterTrades('1m')">1M</button>
+                        <button class="time-btn" data-period="3m" onclick="filterTrades('3m')">3M</button>
+                        <button class="time-btn" data-period="ytd" onclick="filterTrades('ytd')">YTD</button>
+                        <button class="time-btn" data-period="1y" onclick="filterTrades('1y')">1Y</button>
+                    </div>
+                    
+                    <!-- CHART -->
+                    <div class="chart-card">
+                        <img src="etb_neon_terminal.png?v=1764056170" id="chartImg" alt="Market Chart">
+                    </div>
+                    
+                    <!-- TABLES -->
+                    <div class="table-card">
+                        <h3>Market Summary by Source</h3>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Source</th>
+                                    <th>Min</th>
+                                    <th>Q1</th>
+                                    <th>Med</th>
+                                    <th>Q3</th>
+                                    <th>Max</th>
+                                    <th>Ads</th>
+                                </tr>
+                            </thead>
+                            <tbody><tr><td class='source-col'>Binance</td><td>174.63</td><td>175.53</td><td class='med-col'>176.21</td><td>176.31</td><td>176.31</td><td>160</td></tr><tr><td class='source-col'>Bybit</td><td>167.65</td><td>167.76</td><td class='med-col'>167.87</td><td>167.97</td><td>168.08</td><td>2</td></tr><tr><td class='source-col'>MEXC</td><td>160.01</td><td>175.52</td><td class='med-col'>180.02</td><td>182.18</td><td>182.91</td><td>43</td></tr></tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="table-card">
+                        <h3>📊 Price Distribution (5 ETB Bands)</h3>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Price Range</th>
+                                    <th>Ad Count</th>
+                                </tr>
+                            </thead>
+                            <tbody><tr><td style=''>160-165 ETB</td><td style=''>3</td></tr><tr><td style=''>165-170 ETB</td><td style=''>3</td></tr><tr><td style=''>170-175 ETB</td><td style=''>21</td></tr><tr><td style='font-weight:bold;color:var(--accent)'>175-180 ETB</td><td style='font-weight:bold;color:var(--accent)'>154</td></tr><tr><td style=''>180-185 ETB</td><td style=''>24</td></tr></tbody>
+                        </table>
+                    </div>
                 </div>
-                <div class="card chart">
-                    <img src="etb_neon_terminal.png?v=1764055622" id="chartImg" alt="Market Chart">
-                </div>
-                <div class="card">
-                    <h3 style="margin:0 0 15px 0; color:var(--text); font-size:1rem;">Market Summary by Source</h3>
-                    <table>
-                        <thead><tr><th>Source</th><th>Min</th><th>Q1</th><th>Med</th><th>Q3</th><th>Max</th><th>Ads</th></tr></thead>
-                        <tbody><tr><td class='source-col'>Binance</td><td>174.53</td><td>174.97</td><td class='med-col'>175.58</td><td>176.32</td><td>176.33</td><td>200</td></tr><tr><td class='source-col'>Bybit</td><td>167.66</td><td>167.76</td><td class='med-col'>167.87</td><td>167.98</td><td>168.09</td><td>2</td></tr><tr><td class='source-col'>MEXC</td><td>90.01</td><td>170.02</td><td class='med-col'>178.13</td><td>182.14</td><td>182.87</td><td>49</td></tr></tbody>
-                    </table>
-                </div>
-                <div class="card">
-                    <h3 style="margin:0 0 15px 0; color:var(--text); font-size:1rem;">📊 Price Distribution (5 ETB Bands)</h3>
-                    <table>
-                        <thead><tr><th>Price Range</th><th>Ad Count</th></tr></thead>
-                        <tbody><tr><td style=''>90-95 ETB</td><td style=''>1</td></tr><tr><td style=''>120-125 ETB</td><td style=''>1</td></tr><tr><td style=''>130-135 ETB</td><td style=''>1</td></tr><tr><td style=''>140-145 ETB</td><td style=''>1</td></tr><tr><td style=''>145-150 ETB</td><td style=''>1</td></tr><tr><td style=''>150-155 ETB</td><td style=''>2</td></tr><tr><td style=''>160-165 ETB</td><td style=''>3</td></tr><tr><td style=''>165-170 ETB</td><td style=''>3</td></tr><tr><td style=''>170-175 ETB</td><td style=''>60</td></tr><tr><td style='font-weight:bold;color:var(--accent)'>175-180 ETB</td><td style='font-weight:bold;color:var(--accent)'>155</td></tr><tr><td style=''>180-185 ETB</td><td style=''>23</td></tr></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="right-col">
-                <div class="card">
-                    <div class="feed-title">👀 Recent Market Actions</div>
-                    <div class="feed-container"><div style='color:#2ea043;font-size:0.9rem;margin-bottom:10px;'>✅ 91 trades in last hour</div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">ETHIO USD</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">3,983 USDT</span> 
-                    @ <span class="feed-price">174.63 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">ETHIO USD</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">778 USDT</span> 
-                    @ <span class="feed-price">174.63 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Eye-Trader</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">867 USDT</span> 
-                    @ <span class="feed-price">174.63 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">AB-Mark</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">100 USDT</span> 
-                    @ <span class="feed-price">175.57 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">daily hustler </span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">4,762 USDT</span> 
-                    @ <span class="feed-price">175.57 ETB</span>
+                
+                <!-- FEED PANEL -->
+                <div class="feed-panel">
+                    <div class="feed-header">
+                        <div class="feed-title">Market Activity</div>
+                        <div style="color:var(--text-secondary);font-size:13px;" id="feedStats">
+                            Loading...
+                        </div>
+                    </div>
+                    <div class="feed-container" id="feedContainer">
+                        <div style="padding:20px;text-align:center;color:var(--text-secondary)">Loading...</div>
+                    </div>
                 </div>
             </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">daily hustler </span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">18,149 USDT</span> 
-                    @ <span class="feed-price">175.57 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Ambasel </span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">148,129 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Zenith-UA</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">6 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Amana_Traders </span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">8,265 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Always-trade</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">1,305,057 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">ETHO  KENYAA</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">300 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Aslam72</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">9,646 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">sayid12</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">251 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">SKY-blue77</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">22,165 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">McM p7</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">44,651 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">instant_payee</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">1,097 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Gitsini</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">189 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:27:01 AM</span> <span style="color:#666">(0s ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">ETHIO_TRADER_01</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">134 USDT</span> 
-                    @ <span class="feed-price">176.33 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:13:25 AM</span> <span style="color:#666">(13min ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">ETHIO USD</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">3,983 USDT</span> 
-                    @ <span class="feed-price">174.63 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:13:25 AM</span> <span style="color:#666">(13min ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">ETHIO USD</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">778 USDT</span> 
-                    @ <span class="feed-price">174.63 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:13:25 AM</span> <span style="color:#666">(13min ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Eye-Trader</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">867 USDT</span> 
-                    @ <span class="feed-price">174.63 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:13:25 AM</span> <span style="color:#666">(13min ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">daily hustler </span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">4,762 USDT</span> 
-                    @ <span class="feed-price">175.57 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:13:25 AM</span> <span style="color:#666">(13min ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">daily hustler </span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">18,149 USDT</span> 
-                    @ <span class="feed-price">175.57 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:13:25 AM</span> <span style="color:#666">(13min ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Ambasel </span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">10 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:13:25 AM</span> <span style="color:#666">(13min ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Ambasel </span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">148,139 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:13:25 AM</span> <span style="color:#666">(13min ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Zenith-UA</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">11 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:13:25 AM</span> <span style="color:#666">(13min ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Amana_Traders </span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">8,265 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:13:25 AM</span> <span style="color:#666">(13min ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Always-trade</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">1,305,057 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:13:25 AM</span> <span style="color:#666">(13min ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">ETHO  KENYAA</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">300 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div>
-            <div class="feed-item">
-                <div class="feed-icon" style="background:#2ea043">🟡</div>
-                <div class="feed-content">
-                    <span class="feed-ts">07:13:25 AM</span> <span style="color:#666">(13min ago)</span> → 
-                    <span class="feed-source" style="color:#f3ba2f;font-weight:bold">Binance</span>: 
-                    <span class="feed-user">Aslam72</span> 
-                    <b style="color:#2ea043">SOLD</b> 
-                    <span class="feed-vol">9,579 USDT</span> 
-                    @ <span class="feed-price">176.32 ETB</span>
-                </div>
-            </div></div>
-                </div>
-            </div>
-
+            
             <footer>
-                Official: 153.41 ETB | Last Update: 2025-11-25 07:27:02 UTC | 
-                Tracking inventory drops (45s window, 1hr history)
+                Official Rate: 153.41 ETB | Last Update: 2025-11-25 07:36:10 UTC<br>
+                v36.0 Robinhood Edition • Tracking inventory changes (45s window, 24h history)
             </footer>
         </div>
-
+        
         <script>
-            const imgDark = "etb_neon_terminal.png?v=1764055622";
-            const imgLight = "etb_light_terminal.png?v=1764055622";
-            const html = document.documentElement;
+            const allTrades = [{"type": "trade", "source": "Binance", "user": "ETHIO_TRADER_01", "price": 176.33556865745533, "vol_usd": 78.09999999999854, "timestamp": 1764052786.3017392}, {"type": "trade", "source": "Binance", "user": "HT2424", "price": 176.32556720724506, "vol_usd": 6723.43, "timestamp": 1764052786.301779}, {"type": "trade", "source": "Binance", "user": "AaaaaaaaFast", "price": 176.32556720724506, "vol_usd": 43.20999999999913, "timestamp": 1764052786.301799}, {"type": "trade", "source": "Binance", "user": "McM p7", "price": 176.32556720724506, "vol_usd": 43579.770000000004, "timestamp": 1764052786.301807}, {"type": "trade", "source": "Binance", "user": "SKY-blue77", "price": 176.32556720724506, "vol_usd": 22164.809999999998, "timestamp": 1764052786.3018162}, {"type": "trade", "source": "Binance", "user": "sayid12", "price": 176.32556720724506, "vol_usd": 19.400000000001455, "timestamp": 1764052786.3018405}, {"type": "trade", "source": "Binance", "user": "Aslam72", "price": 176.32556720724506, "vol_usd": 9545.330000000002, "timestamp": 1764052786.3018496}, {"type": "trade", "source": "Binance", "user": "ETHO  KENYAA", "price": 176.32556720724506, "vol_usd": 300.1199999999999, "timestamp": 1764052786.3018575}, {"type": "trade", "source": "Binance", "user": "Always-trade", "price": 176.32556720724506, "vol_usd": 1305056.65, "timestamp": 1764052786.30187}, {"type": "trade", "source": "Binance", "user": "Amana_Traders ", "price": 176.32556720724506, "vol_usd": 8264.689999999988, "timestamp": 1764052786.3018794}, {"type": "trade", "source": "Binance", "user": "Zenith-UA", "price": 176.32556720724506, "vol_usd": 21.290000000000873, "timestamp": 1764052786.301909}, {"type": "trade", "source": "Binance", "user": "Ambasel ", "price": 176.32556720724506, "vol_usd": 148142.56999999998, "timestamp": 1764052786.30193}, {"type": "trade", "source": "Binance", "user": "MAYA-Bit", "price": 176.32556720724506, "vol_usd": 3486.8099999999977, "timestamp": 1764052786.3019462}, {"type": "trade", "source": "Binance", "user": "daily hustler ", "price": 175.575458441474, "vol_usd": 18149.14, "timestamp": 1764052786.3020074}, {"type": "trade", "source": "Binance", "user": "daily hustler ", "price": 175.575458441474, "vol_usd": 4761.830000000002, "timestamp": 1764052786.3020263}, {"type": "trade", "source": "Binance", "user": "IamH21", "price": 175.54545409084318, "vol_usd": 33.74000000000001, "timestamp": 1764052786.302058}, {"type": "trade", "source": "Binance", "user": "Eye-Trader", "price": 174.63532212170765, "vol_usd": 866.6000000000004, "timestamp": 1764052786.3021626}, {"type": "trade", "source": "Binance", "user": "ETHIO USD", "price": 174.63532212170765, "vol_usd": 778.3099999999977, "timestamp": 1764052786.3021843}, {"type": "trade", "source": "Binance", "user": "ETHIO USD", "price": 174.63532212170765, "vol_usd": 3982.779999999999, "timestamp": 1764052786.302193}, {"type": "trade", "source": "Binance", "user": "HT2424", "price": 176.32327467225676, "vol_usd": 6723.43, "timestamp": 1764053631.2003942}, {"type": "trade", "source": "Binance", "user": "McM p7", "price": 176.32327467225676, "vol_usd": 43579.770000000004, "timestamp": 1764053631.2004328}, {"type": "trade", "source": "Binance", "user": "SKY-blue77", "price": 176.32327467225676, "vol_usd": 22164.809999999998, "timestamp": 1764053631.2004457}, {"type": "trade", "source": "Binance", "user": "sayid12", "price": 176.32327467225676, "vol_usd": 7.950000000000728, "timestamp": 1764053631.2004704}, {"type": "trade", "source": "Binance", "user": "Aslam72", "price": 176.32327467225676, "vol_usd": 9570.279999999999, "timestamp": 1764053631.200479}, {"type": "trade", "source": "Binance", "user": "ETHO  KENYAA", "price": 176.32327467225676, "vol_usd": 300.1199999999999, "timestamp": 1764053631.2004888}, {"type": "trade", "source": "Binance", "user": "Always-trade", "price": 176.32327467225676, "vol_usd": 1305056.65, "timestamp": 1764053631.2005033}, {"type": "trade", "source": "Binance", "user": "Amana_Traders ", "price": 176.32327467225676, "vol_usd": 8264.689999999988, "timestamp": 1764053631.2005138}, {"type": "trade", "source": "Binance", "user": "Zenith-UA", "price": 176.32327467225676, "vol_usd": 30.62000000000262, "timestamp": 1764053631.2005403}, {"type": "trade", "source": "Binance", "user": "Ambasel ", "price": 176.32327467225676, "vol_usd": 148139.41999999998, "timestamp": 1764053631.200569}, {"type": "trade", "source": "Binance", "user": "MAYA-Bit", "price": 176.32327467225676, "vol_usd": 1152.1800000000003, "timestamp": 1764053631.2006104}, {"type": "trade", "source": "Binance", "user": "daily hustler ", "price": 175.57317565918703, "vol_usd": 18149.14, "timestamp": 1764053631.2006562}, {"type": "trade", "source": "Binance", "user": "daily hustler ", "price": 175.57317565918703, "vol_usd": 4761.830000000002, "timestamp": 1764053631.200667}, {"type": "trade", "source": "Binance", "user": "AB-Mark", "price": 175.57317565918703, "vol_usd": 461.8199999999997, "timestamp": 1764053631.2006857}, {"type": "trade", "source": "Binance", "user": "P2P-725zs1Ilo", "price": 175.57317565918703, "vol_usd": 142.1999999999971, "timestamp": 1764053631.2007024}, {"type": "trade", "source": "Binance", "user": "Eye-Trader", "price": 174.63305156280632, "vol_usd": 866.6000000000004, "timestamp": 1764053631.2008064}, {"type": "trade", "source": "Binance", "user": "ETHIO USD", "price": 174.63305156280632, "vol_usd": 778.3099999999977, "timestamp": 1764053631.2008243}, {"type": "trade", "source": "Binance", "user": "ETHIO USD", "price": 174.63305156280632, "vol_usd": 3982.779999999999, "timestamp": 1764053631.2008317}, {"type": "trade", "source": "Binance", "user": "ETHIO_TRADER_01", "price": 176.32692738502897, "vol_usd": 49.95000000000073, "timestamp": 1764054135.992631}, {"type": "trade", "source": "Binance", "user": "REAL-MONEY", "price": 176.32692738502897, "vol_usd": 99.95000000000073, "timestamp": 1764054135.9926589}, {"type": "trade", "source": "Binance", "user": "HT2424", "price": 176.3169264249368, "vol_usd": 6723.43, "timestamp": 1764054135.9926667}, {"type": "trade", "source": "Binance", "user": "McM p7", "price": 176.3169264249368, "vol_usd": 43579.770000000004, "timestamp": 1764054135.9926803}, {"type": "trade", "source": "Binance", "user": "SKY-blue77", "price": 176.3169264249368, "vol_usd": 22164.809999999998, "timestamp": 1764054135.9926863}, {"type": "trade", "source": "Binance", "user": "Aslam72", "price": 176.3169264249368, "vol_usd": 9570.279999999999, "timestamp": 1764054135.9927022}, {"type": "trade", "source": "Binance", "user": "ETHO  KENYAA", "price": 176.3169264249368, "vol_usd": 300.1199999999999, "timestamp": 1764054135.9927075}, {"type": "trade", "source": "Binance", "user": "Always-trade", "price": 176.3169264249368, "vol_usd": 1305056.65, "timestamp": 1764054135.992721}, {"type": "trade", "source": "Binance", "user": "Amana_Traders ", "price": 176.3169264249368, "vol_usd": 8264.689999999988, "timestamp": 1764054135.9927325}, {"type": "trade", "source": "Binance", "user": "SafeHold ", "price": 176.3169264249368, "vol_usd": 42.94999999999709, "timestamp": 1764054135.9927862}, {"type": "trade", "source": "Binance", "user": "Ambasel ", "price": 176.3169264249368, "vol_usd": 148139.41999999998, "timestamp": 1764054135.992809}, {"type": "trade", "source": "Binance", "user": "MAYA-Bit", "price": 176.3169264249368, "vol_usd": 699.9500000000007, "timestamp": 1764054135.9928281}, {"type": "trade", "source": "Binance", "user": "daily hustler ", "price": 175.56685441802415, "vol_usd": 18149.14, "timestamp": 1764054135.9928825}, {"type": "trade", "source": "Binance", "user": "daily hustler ", "price": 175.56685441802415, "vol_usd": 4761.830000000002, "timestamp": 1764054135.9928951}, {"type": "trade", "source": "Binance", "user": "Eye-Trader", "price": 174.62676416936026, "vol_usd": 866.6000000000004, "timestamp": 1764054135.9929945}, {"type": "trade", "source": "Binance", "user": "ETHIO USD", "price": 174.62676416936026, "vol_usd": 778.3099999999977, "timestamp": 1764054135.9930072}, {"type": "trade", "source": "Binance", "user": "ETHIO USD", "price": 174.62676416936026, "vol_usd": 3982.779999999999, "timestamp": 1764054135.993015}, {"type": "trade", "source": "Binance", "user": "p2p treder2", "price": 174.62676416936026, "vol_usd": 3499.9500000000044, "timestamp": 1764054135.993029}, {"type": "trade", "source": "Binance", "user": "ETHIO_TRADER_01", "price": 176.32710372906172, "vol_usd": 39.95000000000073, "timestamp": 1764054805.5554643}, {"type": "trade", "source": "Binance", "user": "REAL-MONEY", "price": 176.32710372906172, "vol_usd": 338.3600000000006, "timestamp": 1764054805.5554938}, {"type": "trade", "source": "Binance", "user": "AaaaaaaaFast", "price": 176.31710275896762, "vol_usd": 47.70999999999913, "timestamp": 1764054805.5555096}, {"type": "trade", "source": "Binance", "user": "McM p7", "price": 176.31710275896762, "vol_usd": 43750.72, "timestamp": 1764054805.5555148}, {"type": "trade", "source": "Binance", "user": "McM p7", "price": 176.31710275896762, "vol_usd": 99.94999999999709, "timestamp": 1764054805.5555193}, {"type": "trade", "source": "Binance", "user": "SKY-blue77", "price": 176.31710275896762, "vol_usd": 22164.809999999998, "timestamp": 1764054805.555529}, {"type": "trade", "source": "Binance", "user": "Aslam72", "price": 176.31710275896762, "vol_usd": 9579.080000000002, "timestamp": 1764054805.5555763}, {"type": "trade", "source": "Binance", "user": "ETHO  KENYAA", "price": 176.31710275896762, "vol_usd": 300.1199999999999, "timestamp": 1764054805.555588}, {"type": "trade", "source": "Binance", "user": "Always-trade", "price": 176.31710275896762, "vol_usd": 1305056.65, "timestamp": 1764054805.555604}, {"type": "trade", "source": "Binance", "user": "Amana_Traders ", "price": 176.31710275896762, "vol_usd": 8264.689999999988, "timestamp": 1764054805.555616}, {"type": "trade", "source": "Binance", "user": "Zenith-UA", "price": 176.31710275896762, "vol_usd": 10.769999999996799, "timestamp": 1764054805.55565}, {"type": "trade", "source": "Binance", "user": "Ambasel ", "price": 176.31710275896762, "vol_usd": 148139.41999999998, "timestamp": 1764054805.5556731}, {"type": "trade", "source": "Binance", "user": "Ambasel ", "price": 176.31710275896762, "vol_usd": 10.489999999990687, "timestamp": 1764054805.5556808}, {"type": "trade", "source": "Binance", "user": "daily hustler ", "price": 175.5670300019102, "vol_usd": 18149.14, "timestamp": 1764054805.555735}, {"type": "trade", "source": "Binance", "user": "daily hustler ", "price": 175.5670300019102, "vol_usd": 4761.830000000002, "timestamp": 1764054805.555748}, {"type": "trade", "source": "Binance", "user": "Eye-Trader", "price": 174.6269388130649, "vol_usd": 866.6000000000004, "timestamp": 1764054805.5558476}, {"type": "trade", "source": "Binance", "user": "ETHIO USD", "price": 174.6269388130649, "vol_usd": 778.3099999999977, "timestamp": 1764054805.5558708}, {"type": "trade", "source": "Binance", "user": "ETHIO USD", "price": 174.6269388130649, "vol_usd": 3982.779999999999, "timestamp": 1764054805.5558784}, {"type": "trade", "source": "Binance", "user": "ETHIO_TRADER_01", "price": 176.32798545451638, "vol_usd": 133.63999999999942, "timestamp": 1764055621.3236096}, {"type": "trade", "source": "Binance", "user": "Gitsini", "price": 176.31798443441232, "vol_usd": 188.6700000000019, "timestamp": 1764055621.3236377}, {"type": "trade", "source": "Binance", "user": "instant_payee", "price": 176.31798443441232, "vol_usd": 1096.9, "timestamp": 1764055621.3236465}, {"type": "trade", "source": "Binance", "user": "McM p7", "price": 176.31798443441232, "vol_usd": 44650.67, "timestamp": 1764055621.3236566}, {"type": "trade", "source": "Binance", "user": "SKY-blue77", "price": 176.31798443441232, "vol_usd": 22164.809999999998, "timestamp": 1764055621.323662}, {"type": "trade", "source": "Binance", "user": "sayid12", "price": 176.31798443441232, "vol_usd": 250.61999999999898, "timestamp": 1764055621.3236852}, {"type": "trade", "source": "Binance", "user": "Aslam72", "price": 176.31798443441232, "vol_usd": 9645.599999999999, "timestamp": 1764055621.3236935}, {"type": "trade", "source": "Binance", "user": "ETHO  KENYAA", "price": 176.31798443441232, "vol_usd": 300.1199999999999, "timestamp": 1764055621.3237016}, {"type": "trade", "source": "Binance", "user": "Always-trade", "price": 176.31798443441232, "vol_usd": 1305056.65, "timestamp": 1764055621.323714}, {"type": "trade", "source": "Binance", "user": "Amana_Traders ", "price": 176.31798443441232, "vol_usd": 8264.689999999988, "timestamp": 1764055621.3237271}, {"type": "trade", "source": "Binance", "user": "Zenith-UA", "price": 176.31798443441232, "vol_usd": 5.950000000004366, "timestamp": 1764055621.323756}, {"type": "trade", "source": "Binance", "user": "Ambasel ", "price": 176.31798443441232, "vol_usd": 148128.93, "timestamp": 1764055621.3237786}, {"type": "trade", "source": "Binance", "user": "daily hustler ", "price": 175.56790792660854, "vol_usd": 18149.14, "timestamp": 1764055621.3238316}, {"type": "trade", "source": "Binance", "user": "daily hustler ", "price": 175.56790792660854, "vol_usd": 4761.830000000002, "timestamp": 1764055621.3238416}, {"type": "trade", "source": "Binance", "user": "AB-Mark", "price": 175.56790792660854, "vol_usd": 99.95000000000073, "timestamp": 1764055621.323857}, {"type": "trade", "source": "Binance", "user": "Eye-Trader", "price": 174.62781203682778, "vol_usd": 866.6000000000004, "timestamp": 1764055621.3239539}, {"type": "trade", "source": "Binance", "user": "ETHIO USD", "price": 174.62781203682778, "vol_usd": 778.3099999999977, "timestamp": 1764055621.3239734}, {"type": "trade", "source": "Binance", "user": "ETHIO USD", "price": 174.62781203682778, "vol_usd": 3982.779999999999, "timestamp": 1764055621.323984}, {"type": "sell", "source": "Binance", "user": "Gitsini", "price": 176.31128392217101, "vol_usd": 39.95000000000073, "timestamp": 1764056169.1669803}, {"type": "sell", "source": "Binance", "user": "AaaaaaaaFast", "price": 176.31128392217101, "vol_usd": 49.93000000000029, "timestamp": 1764056169.1670125}, {"type": "sell", "source": "Binance", "user": "McM p7", "price": 176.31128392217101, "vol_usd": 44750.619999999995, "timestamp": 1764056169.167021}, {"type": "sell", "source": "Binance", "user": "SKY-blue77", "price": 176.31128392217101, "vol_usd": 22164.809999999998, "timestamp": 1764056169.1670306}, {"type": "buy", "source": "Binance", "user": "SabbanFastTrader", "price": 176.31128392217101, "vol_usd": 3856.2300000000105, "timestamp": 1764056169.1670403}, {"type": "buy", "source": "Binance", "user": "SabbanFastTrader", "price": 176.31128392217101, "vol_usd": 10212.990000000005, "timestamp": 1764056169.1670485}, {"type": "buy", "source": "Binance", "user": "SabbanFastTrader", "price": 176.31128392217101, "vol_usd": 5743.010000000009, "timestamp": 1764056169.1670558}, {"type": "buy", "source": "Binance", "user": "MAYA-Bit", "price": 176.31128392217101, "vol_usd": 50691.26, "timestamp": 1764056169.1670706}, {"type": "buy", "source": "Binance", "user": "MAYA-Bit", "price": 176.31128392217101, "vol_usd": 72310.01000000001, "timestamp": 1764056169.1670763}, {"type": "sell", "source": "Binance", "user": "Aslam72", "price": 176.31128392217101, "vol_usd": 9654.099999999999, "timestamp": 1764056169.167082}, {"type": "sell", "source": "Binance", "user": "ETHO  KENYAA", "price": 176.31128392217101, "vol_usd": 300.1199999999999, "timestamp": 1764056169.1670868}, {"type": "buy", "source": "Binance", "user": "SafeHold ", "price": 176.31128392217101, "vol_usd": 10094.050000000003, "timestamp": 1764056169.1670978}, {"type": "buy", "source": "Binance", "user": "SafeHold ", "price": 176.31128392217101, "vol_usd": 13858.75, "timestamp": 1764056169.1671078}, {"type": "sell", "source": "Binance", "user": "Always-trade", "price": 176.31128392217101, "vol_usd": 1305056.65, "timestamp": 1764056169.1671164}, {"type": "buy", "source": "Binance", "user": "Amana_Traders ", "price": 176.31128392217101, "vol_usd": 993.9600000000064, "timestamp": 1764056169.1671305}, {"type": "sell", "source": "Binance", "user": "Amana_Traders ", "price": 176.31128392217101, "vol_usd": 8264.689999999988, "timestamp": 1764056169.1671464}, {"type": "sell", "source": "Binance", "user": "Autonline", "price": 176.31128392217101, "vol_usd": 52.950000000004366, "timestamp": 1764056169.1671574}, {"type": "buy", "source": "Binance", "user": "The Flash ETB ", "price": 176.31128392217101, "vol_usd": 19094.47, "timestamp": 1764056169.1671937}, {"type": "buy", "source": "Binance", "user": "Ambasel ", "price": 176.31128392217101, "vol_usd": 780369.4199999999, "timestamp": 1764056169.1672103}, {"type": "sell", "source": "Binance", "user": "Ambasel ", "price": 176.31128392217101, "vol_usd": 148128.93, "timestamp": 1764056169.1672177}, {"type": "buy", "source": "Binance", "user": "MAYA-Bit", "price": 176.31128392217101, "vol_usd": 70142.95999999999, "timestamp": 1764056169.167228}, {"type": "buy", "source": "Binance", "user": "Fast_-Pay", "price": 176.30128328213004, "vol_usd": 87549.28000000001, "timestamp": 1764056169.1672432}, {"type": "sell", "source": "Binance", "user": "daily hustler ", "price": 175.56123591909883, "vol_usd": 18149.14, "timestamp": 1764056169.1672883}, {"type": "sell", "source": "Binance", "user": "daily hustler ", "price": 175.56123591909883, "vol_usd": 4761.830000000002, "timestamp": 1764056169.167296}, {"type": "buy", "source": "Binance", "user": "P2P-725zs1Ilo", "price": 175.56123591909883, "vol_usd": 2281.729999999996, "timestamp": 1764056169.1673148}];
+            const imgDark = "etb_neon_terminal.png?v=1764056170";
+            const imgLight = "etb_light_terminal.png?v=1764056170";
             
-            (function() {
-                const theme = localStorage.getItem('theme') || 'dark';
-                html.setAttribute('data-theme', theme);
-                document.getElementById('chartImg').src = theme === 'light' ? imgLight : imgDark;
-            })();
-
+            // Theme toggle
             function toggleTheme() {
+                const html = document.documentElement;
                 const current = html.getAttribute('data-theme');
                 const next = current === 'light' ? 'dark' : 'light';
                 html.setAttribute('data-theme', next);
                 localStorage.setItem('theme', next);
                 document.getElementById('chartImg').src = next === 'light' ? imgLight : imgDark;
+                document.getElementById('theme-icon').textContent = next === 'light' ? '☀️' : '🌙';
             }
+            
+            // Initialize theme
+            (function() {
+                const theme = localStorage.getItem('theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', theme);
+                document.getElementById('chartImg').src = theme === 'light' ? imgLight : imgDark;
+                document.getElementById('theme-icon').textContent = theme === 'light' ? '☀️' : '🌙';
+            })();
+            
+            // Filter trades by time period
+            function filterTrades(period) {
+                // Update active button
+                document.querySelectorAll('.time-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                document.querySelector(`[data-period="${period}"]`).classList.add('active');
+                
+                // Filter trades
+                const now = Date.now() / 1000;
+                let cutoff = 0;
+                
+                switch(period) {
+                    case '1h': cutoff = now - 3600; break;
+                    case '1d': cutoff = now - 86400; break;
+                    case '1w': cutoff = now - 604800; break;
+                    case '1m': cutoff = now - 2592000; break;
+                    case '3m': cutoff = now - 7776000; break;
+                    case 'ytd': 
+                        const start = new Date(new Date().getFullYear(), 0, 1);
+                        cutoff = start.getTime() / 1000;
+                        break;
+                    case '1y': cutoff = now - 31536000; break;
+                    case 'live':
+                    default: cutoff = 0;
+                }
+                
+                const filtered = allTrades.filter(t => t.timestamp > cutoff);
+                
+                // Update feed
+                renderFeed(filtered);
+                
+                // Update stats
+                const buys = filtered.filter(t => t.type === 'buy').length;
+                const sells = filtered.filter(t => t.type === 'sell').length;
+                document.getElementById('feedStats').innerHTML = 
+                    `<span style="color:var(--green)">🟢 ${buys} Buys</span> • <span style="color:var(--red)">🔴 ${sells} Sells</span>`;
+            }
+            
+            function renderFeed(trades) {
+                const container = document.getElementById('feedContainer');
+                
+                if (trades.length === 0) {
+                    container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No trades in this period</div>';
+                    return;
+                }
+                
+                const html = trades.slice(0, 50).reverse().map(trade => {
+                    const date = new Date(trade.timestamp * 1000);
+                    const time = date.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'});
+                    const ageMin = Math.floor((Date.now() / 1000 - trade.timestamp) / 60);
+                    const age = ageMin < 60 ? `${ageMin}m ago` : `${Math.floor(ageMin/60)}h ago`;
+                    
+                    const isBuy = trade.type === 'buy';
+                    const icon = isBuy ? '↗' : '↘';
+                    const action = isBuy ? 'BOUGHT' : 'SOLD';
+                    const color = isBuy ? 'var(--green)' : 'var(--red)';
+                    
+                    return `
+                        <div class="feed-item">
+                            <div class="feed-icon ${trade.type}">
+                                ${icon}
+                            </div>
+                            <div class="feed-content">
+                                <div class="feed-meta">
+                                    <span>${time}</span>
+                                    <span>${age}</span>
+                                </div>
+                                <div class="feed-text">
+                                    <span class="feed-user">${trade.user.substring(0, 12)}</span> (${trade.source})
+                                    <b style="color:${color}">${action}</b>
+                                    <span class="feed-amount">${trade.vol_usd.toFixed(0)} USDT</span>
+                                    @ <span class="feed-price">${trade.price.toFixed(2)} ETB</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                container.innerHTML = html;
+            }
+            
+            // Initialize
+            filterTrades('live');
         </script>
     </body>
     </html>
