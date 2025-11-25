@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v37.8 (Volume Debug Fix)
-- DEBUG: Added comprehensive logging for volume calculation
-- FIX: Debugging why volume chart shows $0 despite having trades
-- DEBUG: Prints trade samples and volume calculation steps
-- FIX: Will help identify source of volume calculation issue
-- NOTE: 45s wait time is OPTIMAL (don't change!)
-- EXCHANGES: Binance, MEXC, OKX (all via p2p.army API)
-- TICKER: NYSE-style sliding rate ticker at top
-- CHARTS: Clean with latest label + volume bars
-- TRACKING: 1H/Today/Week/24h statistics
-- UI: Enhanced Robinhood-style interface
+🇪🇹 ETB Financial Terminal v37.6 (Direct Scrapers + Buy/Sell Fixed)
+- FIX: Uses PROVEN direct scrapers from v35.0 (Binance direct API, not p2p.army)
+- FIX: Fetches BOTH buy and sell ads from all exchanges
+- FIX: Proper inventory tracking for buy/sell detection
+- WORKS: Actually detects trades now (v37.5 had 0 detections)
+- EXCHANGES: Binance (direct), MEXC, OKX
+- TRACKING: Buy + Sell with inventory drops
+- DISPLAY: Separate buy/sell statistics
+- UI: Green sources, pink median, color-coded stats
 """
 
 import requests
@@ -43,27 +41,6 @@ GRAPH_FILENAME = "etb_neon_terminal.png"
 GRAPH_LIGHT_FILENAME = "etb_light_terminal.png"
 HTML_FILENAME = "index.html"
 
-# TIMING CONFIGURATION
-# BURST_WAIT_TIME determines how long we wait between API checks to detect trades
-# Strategy: SHORT wait (45s) catches MORE trades, not fewer!
-# 
-# How it works:
-# 1. Fetch ads at T=0
-# 2. Wait 45 seconds
-# 3. Fetch ads again at T=45s
-# 4. Compare: Ads that disappeared = SOLD, Ads that appeared = BOUGHT
-#
-# Why 45 seconds is optimal:
-# - Too short (10s): Ads might not have time to appear/disappear
-# - Too long (10min): Miss fast trades, fewer checks per GitHub Actions run
-# - 45s: Sweet spot - proven by v29.1 testing
-#
-# With GitHub Actions running every ~3 minutes:
-# - Each run does 1-2 checks
-# - 45s wait allows enough time for ad state changes
-# - Catches both quick and slow trades
-#
-# DO NOT increase to 10 minutes - this will REDUCE trade detection!
 BURST_WAIT_TIME = 45
 TRADE_RETENTION_MINUTES = 1440  # 24 hours
 MAX_ADS_PER_SOURCE = 200
@@ -88,67 +65,157 @@ def fetch_usdt_peg():
     except:
         return 1.00
 
-def fetch_p2p_army_exchange(market, side="SELL"):
-    """Universal fetcher for any exchange via p2p.army API"""
+def fetch_binance_direct(trade_type):
+    """Direct Scraper for Binance - PROVEN METHOD from v35.0"""
+    url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+    ads = []
+    page = 1
+    payload = {
+        "asset": "USDT", "fiat": "ETB", "merchantCheck": False,
+        "page": 1, "rows": 20, "tradeType": trade_type,
+        "payTypes": [], "countries": [], "publisherType": None
+    }
+    
+    while len(ads) < 200:
+        try:
+            payload["page"] = page
+            r = requests.post(url, headers=HEADERS, json=payload, timeout=10)
+            data = r.json().get('data', [])
+            if not data: break
+            
+            for d in data:
+                adv = d.get('adv', {})
+                ads.append({
+                    'source': 'BINANCE',
+                    'advertiser': d.get('advertiser', {}).get('nickName', 'Binance User'),
+                    'price': float(adv.get('price')),
+                    'available': float(adv.get('surplusAmount', 0)),
+                    'trade_type': 'sell' if trade_type == 'SELL' else 'buy'
+                })
+                if len(ads) >= 200:
+                    break
+            page += 1
+            time.sleep(0.2)
+        except:
+            break
+    
+    print(f"   BINANCE {trade_type}: {len(ads)} ads", file=sys.stderr)
+    return ads[:200]
+
+def fetch_mexc_direct(side):
+    """Direct MEXC via p2p.army - v35.0 proven method"""
     url = "https://p2p.army/v1/api/get_p2p_order_book"
     ads = []
     h = HEADERS.copy()
     h["X-APIKEY"] = P2P_ARMY_KEY
     
     try:
-        payload = {"market": market, "fiat": "ETB", "asset": "USDT", "side": side, "limit": 100}
+        payload = {"market": "mexc", "fiat": "ETB", "asset": "USDT", "side": side, "limit": 200}
         r = requests.post(url, headers=h, json=payload, timeout=10)
         data = r.json()
         
-        # Parse response (handles multiple formats)
         candidates = data.get("result", data.get("data", data.get("ads", [])))
         if not candidates and isinstance(data, list):
             candidates = data
         
         if candidates:
-            for ad in candidates:
+            for ad in candidates[:200]:
                 if isinstance(ad, dict) and 'price' in ad:
                     try:
                         ads.append({
-                            'source': market.upper(),
-                            'advertiser': ad.get('advertiser_name', ad.get('nickname', f'{market} User')),
+                            'source': 'MEXC',
+                            'advertiser': ad.get('advertiser_name', ad.get('nickname', 'MEXC User')),
                             'price': float(ad['price']),
                             'available': float(ad.get('available_amount', ad.get('amount', 0))),
+                            'trade_type': 'sell' if side == 'SELL' else 'buy'
                         })
-                    except Exception as e:
+                    except:
                         continue
         
-        print(f"   {market.upper()}: {len(ads)} ads", file=sys.stderr)
+        print(f"   MEXC {side}: {len(ads)} ads", file=sys.stderr)
     except Exception as e:
-        print(f"   {market.upper()} error: {e}", file=sys.stderr)
+        print(f"   MEXC error: {e}", file=sys.stderr)
+    
+    return ads
+
+def fetch_okx_direct(side):
+    """Direct OKX via p2p.army"""
+    url = "https://p2p.army/v1/api/get_p2p_order_book"
+    ads = []
+    h = HEADERS.copy()
+    h["X-APIKEY"] = P2P_ARMY_KEY
+    
+    try:
+        payload = {"market": "okx", "fiat": "ETB", "asset": "USDT", "side": side, "limit": 200}
+        r = requests.post(url, headers=h, json=payload, timeout=10)
+        data = r.json()
+        
+        candidates = data.get("result", data.get("data", data.get("ads", [])))
+        if not candidates and isinstance(data, list):
+            candidates = data
+        
+        if candidates:
+            for ad in candidates[:200]:
+                if isinstance(ad, dict) and 'price' in ad:
+                    try:
+                        ads.append({
+                            'source': 'OKX',
+                            'advertiser': ad.get('advertiser_name', ad.get('nickname', 'OKX User')),
+                            'price': float(ad['price']),
+                            'available': float(ad.get('available_amount', ad.get('amount', 0))),
+                            'trade_type': 'sell' if side == 'SELL' else 'buy'
+                        })
+                    except:
+                        continue
+        
+        print(f"   OKX {side}: {len(ads)} ads", file=sys.stderr)
+    except Exception as e:
+        print(f"   OKX error: {e}", file=sys.stderr)
     
     return ads
 
 # --- MARKET SNAPSHOT ---
 def capture_market_snapshot():
+    """Fetch BOTH buy and sell ads from all exchanges"""
     with ThreadPoolExecutor(max_workers=10) as ex:
-        f_binance = ex.submit(lambda: fetch_p2p_army_exchange("binance"))
-        f_mexc = ex.submit(lambda: fetch_p2p_army_exchange("mexc"))
-        f_okx = ex.submit(lambda: fetch_p2p_army_exchange("okx"))
+        # Binance - both buy and sell
+        f_bin_sell = ex.submit(lambda: fetch_binance_direct("SELL"))
+        f_bin_buy = ex.submit(lambda: fetch_binance_direct("BUY"))
+        
+        # MEXC - both buy and sell
+        f_mexc_sell = ex.submit(lambda: fetch_mexc_direct("SELL"))
+        f_mexc_buy = ex.submit(lambda: fetch_mexc_direct("BUY"))
+        
+        # OKX - both buy and sell
+        f_okx_sell = ex.submit(lambda: fetch_okx_direct("SELL"))
+        f_okx_buy = ex.submit(lambda: fetch_okx_direct("BUY"))
+        
+        # USDT peg
         f_peg = ex.submit(fetch_usdt_peg)
         
-        binance_data = f_binance.result() or []
-        mexc_data = f_mexc.result() or []
-        okx_data = f_okx.result() or []
+        binance_sells = f_bin_sell.result() or []
+        binance_buys = f_bin_buy.result() or []
+        mexc_sells = f_mexc_sell.result() or []
+        mexc_buys = f_mexc_buy.result() or []
+        okx_sells = f_okx_sell.result() or []
+        okx_buys = f_okx_buy.result() or []
         peg = f_peg.result() or 1.0
         
-        total_before = len(binance_data) + len(mexc_data) + len(okx_data)
-        print(f"   📊 Collected {total_before} ads (Binance: {len(binance_data)}, MEXC: {len(mexc_data)}, OKX: {len(okx_data)})", file=sys.stderr)
+        all_ads = binance_sells + binance_buys + mexc_sells + mexc_buys + okx_sells + okx_buys
         
-        # Remove lowest 10% outliers
-        binance_data = remove_outliers(binance_data, peg)
-        mexc_data = remove_outliers(mexc_data, peg)
-        okx_data = remove_outliers(okx_data, peg)
+        total_before = len(all_ads)
+        print(f"   📊 Collected {total_before} ads total", file=sys.stderr)
+        print(f"      Binance: {len(binance_sells)} sells, {len(binance_buys)} buys", file=sys.stderr)
+        print(f"      MEXC: {len(mexc_sells)} sells, {len(mexc_buys)} buys", file=sys.stderr)
+        print(f"      OKX: {len(okx_sells)} sells, {len(okx_buys)} buys", file=sys.stderr)
         
-        total_after = len(binance_data) + len(mexc_data) + len(okx_data)
+        # Remove outliers
+        all_ads = remove_outliers(all_ads, peg)
+        
+        total_after = len(all_ads)
         print(f"   ✂️ After filtering: {total_after} ads (removed {total_before - total_after} outliers)", file=sys.stderr)
         
-        return binance_data + mexc_data + okx_data
+        return all_ads
 
 def remove_outliers(ads, peg):
     if len(ads) < 10:
@@ -172,7 +239,9 @@ def load_market_state():
 def save_market_state(current_ads):
     state = {}
     for ad in current_ads:
-        key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
+        # Include trade_type in key to track buy/sell ads separately
+        trade_type = ad.get('trade_type', 'sell')
+        key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}_{trade_type}"
         state[key] = ad['available']
     
     with open(SNAPSHOT_FILE, 'w') as f:
@@ -196,15 +265,17 @@ def detect_real_trades(current_ads, peg):
         
         sources_checked[source] += 1
         
-        key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
+        # Include trade_type in key to match save_market_state
+        trade_type = ad.get('trade_type', 'sell')
+        key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}_{trade_type}"
         
         if key in prev_state:
             prev_inventory = prev_state[key]
             curr_inventory = ad['available']
             diff = abs(curr_inventory - prev_inventory)
             
-            # SELL: Inventory dropped
-            if curr_inventory < prev_inventory and diff > 5:
+            # For SELL ads: Inventory drop = someone bought from seller
+            if trade_type == 'sell' and curr_inventory < prev_inventory and diff > 5:
                 trades.append({
                     'type': 'sell',
                     'source': source,
@@ -215,8 +286,8 @@ def detect_real_trades(current_ads, peg):
                 })
                 print(f"   🔴 SELL: {source} - {ad['advertiser'][:15]} sold {diff:,.0f} USDT @ {ad['price']/peg:.2f} ETB", file=sys.stderr)
             
-            # BUY: Inventory increased  
-            elif curr_inventory > prev_inventory and diff > 5:
+            # For BUY ads: Inventory drop = buyer bought USDT
+            elif trade_type == 'buy' and curr_inventory < prev_inventory and diff > 5:
                 trades.append({
                     'type': 'buy',
                     'source': source,
@@ -452,18 +523,18 @@ def generate_charts(stats, official_rate):
 
 # --- STATISTICS CALCULATOR ---
 def calculate_trade_stats(trades):
-    """Calculate 1H/Today/Week/Overall trade statistics"""
+    """Calculate Today/MTD/YTD/Overall trade statistics"""
     import datetime
     
     now = datetime.datetime.now()
-    hour_ago = (now - datetime.timedelta(hours=1)).timestamp()
     today_start = datetime.datetime(now.year, now.month, now.day).timestamp()
-    week_ago = (now - datetime.timedelta(days=7)).timestamp()
+    month_start = datetime.datetime(now.year, now.month, 1).timestamp()
+    year_start = datetime.datetime(now.year, 1, 1).timestamp()
     
     stats = {
-        'hour_buys': 0, 'hour_sells': 0, 'hour_buy_volume': 0, 'hour_sell_volume': 0,
         'today_buys': 0, 'today_sells': 0, 'today_buy_volume': 0, 'today_sell_volume': 0,
-        'week_buys': 0, 'week_sells': 0, 'week_buy_volume': 0, 'week_sell_volume': 0,
+        'mtd_buys': 0, 'mtd_sells': 0, 'mtd_buy_volume': 0, 'mtd_sell_volume': 0,
+        'ytd_buys': 0, 'ytd_sells': 0, 'ytd_buy_volume': 0, 'ytd_sell_volume': 0,
         'overall_buys': 0, 'overall_sells': 0, 'overall_buy_volume': 0, 'overall_sell_volume': 0
     }
     
@@ -480,16 +551,25 @@ def calculate_trade_stats(trades):
             stats['overall_sells'] += 1
             stats['overall_sell_volume'] += vol
         
-        # Last 7 days
-        if ts >= week_ago:
+        # YTD
+        if ts >= year_start:
             if trade_type == 'buy':
-                stats['week_buys'] += 1
-                stats['week_buy_volume'] += vol
+                stats['ytd_buys'] += 1
+                stats['ytd_buy_volume'] += vol
             elif trade_type == 'sell':
-                stats['week_sells'] += 1
-                stats['week_sell_volume'] += vol
+                stats['ytd_sells'] += 1
+                stats['ytd_sell_volume'] += vol
         
-        # Today (since midnight)
+        # MTD
+        if ts >= month_start:
+            if trade_type == 'buy':
+                stats['mtd_buys'] += 1
+                stats['mtd_buy_volume'] += vol
+            elif trade_type == 'sell':
+                stats['mtd_sells'] += 1
+                stats['mtd_sell_volume'] += vol
+        
+        # Today
         if ts >= today_start:
             if trade_type == 'buy':
                 stats['today_buys'] += 1
@@ -497,50 +577,8 @@ def calculate_trade_stats(trades):
             elif trade_type == 'sell':
                 stats['today_sells'] += 1
                 stats['today_sell_volume'] += vol
-        
-        # Last hour
-        if ts >= hour_ago:
-            if trade_type == 'buy':
-                stats['hour_buys'] += 1
-                stats['hour_buy_volume'] += vol
-            elif trade_type == 'sell':
-                stats['hour_sells'] += 1
-                stats['hour_sell_volume'] += vol
     
     return stats
-
-def calculate_volume_by_exchange(trades):
-    """Calculate buy/sell volume by exchange for last 24h"""
-    volumes = {}
-    
-    # Debug: print sample trades
-    print(f"\n🔍 DEBUG: calculate_volume_by_exchange received {len(trades)} trades", file=sys.stderr)
-    if len(trades) > 0:
-        print(f"   Sample trade: {trades[0]}", file=sys.stderr)
-    
-    for trade in trades:
-        source = trade.get('source', 'Unknown')
-        vol = trade.get('vol_usd', 0)
-        trade_type = trade.get('type', '')
-        
-        # Debug: print first few trades
-        if len(volumes) < 3:
-            print(f"   Processing: source={source}, type={trade_type}, vol={vol}", file=sys.stderr)
-        
-        if source not in volumes:
-            volumes[source] = {'buy': 0, 'sell': 0, 'total': 0}
-        
-        if trade_type == 'buy':
-            volumes[source]['buy'] += vol
-        elif trade_type == 'sell':
-            volumes[source]['sell'] += vol
-        
-        volumes[source]['total'] += vol
-    
-    # Debug: print results
-    print(f"   📊 Volume results: {volumes}", file=sys.stderr)
-    
-    return volumes
 
 # --- HTML GENERATOR ---
 def update_website_html(stats, official, timestamp, current_ads, grouped_ads, peg):
@@ -611,85 +649,22 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     
     # Calculate trade statistics
     trade_stats = calculate_trade_stats(recent_trades)
-    hour_buys = trade_stats['hour_buys']
-    hour_sells = trade_stats['hour_sells']
-    hour_buy_volume = trade_stats['hour_buy_volume']
-    hour_sell_volume = trade_stats['hour_sell_volume']
     today_buys = trade_stats['today_buys']
     today_sells = trade_stats['today_sells']
     today_buy_volume = trade_stats['today_buy_volume']
     today_sell_volume = trade_stats['today_sell_volume']
-    week_buys = trade_stats['week_buys']
-    week_sells = trade_stats['week_sells']
-    week_buy_volume = trade_stats['week_buy_volume']
-    week_sell_volume = trade_stats['week_sell_volume']
+    mtd_buys = trade_stats['mtd_buys']
+    mtd_sells = trade_stats['mtd_sells']
+    mtd_buy_volume = trade_stats['mtd_buy_volume']
+    mtd_sell_volume = trade_stats['mtd_sell_volume']
+    ytd_buys = trade_stats['ytd_buys']
+    ytd_sells = trade_stats['ytd_sells']
+    ytd_buy_volume = trade_stats['ytd_buy_volume']
+    ytd_sell_volume = trade_stats['ytd_sell_volume']
     overall_buys = trade_stats['overall_buys']
     overall_sells = trade_stats['overall_sells']
     overall_buy_volume = trade_stats['overall_buy_volume']
     overall_sell_volume = trade_stats['overall_sell_volume']
-    
-    # Debug: Print trade stats for comparison
-    print(f"\n📈 Trade Statistics:", file=sys.stderr)
-    print(f"   Total trades: {len(recent_trades)} ({buys_count} buys, {sells_count} sells)", file=sys.stderr)
-    print(f"   Buy volume: ${overall_buy_volume:,.0f}", file=sys.stderr)
-    print(f"   Sell volume: ${overall_sell_volume:,.0f}", file=sys.stderr)
-    
-    # Calculate volume by exchange
-    volume_by_exchange = calculate_volume_by_exchange(recent_trades)
-    
-    # Debug logging
-    print(f"\n📊 Volume by Exchange:")
-    for source, data in volume_by_exchange.items():
-        print(f"  {source}: Buy ${data['buy']:,.0f}, Sell ${data['sell']:,.0f}, Total ${data['total']:,.0f}")
-    
-    # Create volume chart HTML - ALWAYS show all exchanges
-    volume_chart_html = ""
-    if not volume_by_exchange or all(v['total'] == 0 for v in volume_by_exchange.values()):
-        # No data yet - show placeholder
-        volume_chart_html = """
-        <div style="text-align:center;padding:40px;color:var(--text-secondary)">
-            <div style="font-size:48px;margin-bottom:16px">📊</div>
-            <div style="font-size:16px;font-weight:600;margin-bottom:8px">No Volume Data Yet</div>
-            <div style="font-size:14px">Waiting for trade detection...</div>
-        </div>
-        """
-    else:
-        max_volume = max([v['total'] for v in volume_by_exchange.values()])
-        
-        for source in ['BINANCE', 'MEXC', 'OKX']:
-            # Get data or default to 0
-            data = volume_by_exchange.get(source, {'buy': 0, 'sell': 0, 'total': 0})
-            buy_pct = (data['buy'] / max_volume * 100) if max_volume > 0 else 0
-            sell_pct = (data['sell'] / max_volume * 100) if max_volume > 0 else 0
-            
-            # Ensure minimum visible width if there's any volume
-            if data['buy'] > 0 and buy_pct < 2:
-                buy_pct = 2
-            if data['sell'] > 0 and sell_pct < 2:
-                sell_pct = 2
-            
-            # Source emoji and color
-            emoji = '🟡' if source == 'BINANCE' else ('🔵' if source == 'MEXC' else '🟣')
-            color = '#F3BA2F' if source == 'BINANCE' else ('#2E55E6' if source == 'MEXC' else '#A855F7')
-            
-            volume_chart_html += f"""
-            <div class="volume-row">
-                <div class="volume-source">
-                    <span style="font-size:20px">{emoji}</span>
-                    <span style="color:{color};font-weight:600">{source}</span>
-                </div>
-                <div class="volume-bars">
-                    <div class="volume-bar-group">
-                        <div class="volume-bar buy-bar" style="width:{buy_pct}%"></div>
-                        <span class="volume-label buy-label">${data['buy']:,.0f}</span>
-                    </div>
-                    <div class="volume-bar-group">
-                        <div class="volume-bar sell-bar" style="width:{sell_pct}%"></div>
-                        <span class="volume-label sell-label">${data['sell']:,.0f}</span>
-                    </div>
-                </div>
-            </div>
-            """
     
     # Generate ticker HTML
     ticker_html = ""
@@ -1222,98 +1197,6 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 font-weight: 600;
             }}
             
-            .volume-chart-panel {{
-                background: var(--card);
-                border-radius: 12px;
-                padding: 20px;
-                margin: 20px;
-                border: 1px solid var(--border);
-            }}
-            
-            .volume-chart-title {{
-                font-size: 18px;
-                font-weight: 700;
-                color: var(--text);
-                margin-bottom: 20px;
-                text-align: center;
-            }}
-            
-            .volume-legend {{
-                display: flex;
-                justify-content: center;
-                gap: 24px;
-                margin-bottom: 20px;
-                font-size: 13px;
-            }}
-            
-            .volume-legend-item {{
-                display: flex;
-                align-items: center;
-                gap: 8px;
-            }}
-            
-            .volume-legend-box {{
-                width: 16px;
-                height: 16px;
-                border-radius: 4px;
-            }}
-            
-            .volume-row {{
-                display: grid;
-                grid-template-columns: 150px 1fr;
-                gap: 20px;
-                margin-bottom: 16px;
-                align-items: center;
-            }}
-            
-            .volume-source {{
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                font-size: 14px;
-            }}
-            
-            .volume-bars {{
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-            }}
-            
-            .volume-bar-group {{
-                display: flex;
-                align-items: center;
-                gap: 12px;
-            }}
-            
-            .volume-bar {{
-                height: 24px;
-                border-radius: 4px;
-                transition: width 0.3s ease;
-                min-width: 2px;
-            }}
-            
-            .buy-bar {{
-                background: linear-gradient(90deg, #00C805 0%, #00ff9d 100%);
-            }}
-            
-            .sell-bar {{
-                background: linear-gradient(90deg, #FF3B30 0%, #ff6b6b 100%);
-            }}
-            
-            .volume-label {{
-                font-size: 13px;
-                font-weight: 600;
-                min-width: 100px;
-            }}
-            
-            .buy-label {{
-                color: #00C805;
-            }}
-            
-            .sell-label {{
-                color: #FF3B30;
-            }}
-            
             footer {{
                 text-align: center;
                 padding: 30px 20px;
@@ -1458,23 +1341,6 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 </div>
             </div>
             
-            
-            <!-- Volume Comparison Chart -->
-            <div class="volume-chart-panel">
-                <div class="volume-chart-title">24h Volume by Exchange (Buy vs Sell)</div>
-                <div class="volume-legend">
-                    <div class="volume-legend-item">
-                        <div class="volume-legend-box buy-bar"></div>
-                        <span>Buy Volume</span>
-                    </div>
-                    <div class="volume-legend-item">
-                        <div class="volume-legend-box sell-bar"></div>
-                        <span>Sell Volume</span>
-                    </div>
-                </div>
-                {volume_chart_html}
-            </div>
-            
             <!-- Transaction Statistics Panel -->
             <div class="stats-panel">
                 <div class="stats-title">Transaction Statistics (Within 24 hrs)</div>
@@ -1484,22 +1350,22 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                     <div class="stats-section-title">🟢 Buy Transactions</div>
                     <div class="stats-grid">
                         <div class="stat-card buy-card">
-                            <div class="stat-label">Last 1 Hour</div>
-                            <div class="stat-value green">{hour_buys}</div>
-                            <div class="stat-volume">{hour_buy_volume:,.0f} USDT</div>
-                        </div>
-                        <div class="stat-card buy-card">
                             <div class="stat-label">Today</div>
                             <div class="stat-value green">{today_buys}</div>
                             <div class="stat-volume">{today_buy_volume:,.0f} USDT</div>
                         </div>
                         <div class="stat-card buy-card">
-                            <div class="stat-label">This Week</div>
-                            <div class="stat-value green">{week_buys}</div>
-                            <div class="stat-volume">{week_buy_volume:,.0f} USDT</div>
+                            <div class="stat-label">MTD</div>
+                            <div class="stat-value green">{mtd_buys}</div>
+                            <div class="stat-volume">{mtd_buy_volume:,.0f} USDT</div>
                         </div>
                         <div class="stat-card buy-card">
-                            <div class="stat-label">Overall (24h)</div>
+                            <div class="stat-label">YTD</div>
+                            <div class="stat-value green">{ytd_buys}</div>
+                            <div class="stat-volume">{ytd_buy_volume:,.0f} USDT</div>
+                        </div>
+                        <div class="stat-card buy-card">
+                            <div class="stat-label">Overall</div>
                             <div class="stat-value green">{overall_buys}</div>
                             <div class="stat-volume">{overall_buy_volume:,.0f} USDT</div>
                         </div>
@@ -1511,22 +1377,22 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                     <div class="stats-section-title">🔴 Sell Transactions</div>
                     <div class="stats-grid">
                         <div class="stat-card sell-card">
-                            <div class="stat-label">Last 1 Hour</div>
-                            <div class="stat-value red">{hour_sells}</div>
-                            <div class="stat-volume">{hour_sell_volume:,.0f} USDT</div>
-                        </div>
-                        <div class="stat-card sell-card">
                             <div class="stat-label">Today</div>
                             <div class="stat-value red">{today_sells}</div>
                             <div class="stat-volume">{today_sell_volume:,.0f} USDT</div>
                         </div>
                         <div class="stat-card sell-card">
-                            <div class="stat-label">This Week</div>
-                            <div class="stat-value red">{week_sells}</div>
-                            <div class="stat-volume">{week_sell_volume:,.0f} USDT</div>
+                            <div class="stat-label">MTD</div>
+                            <div class="stat-value red">{mtd_sells}</div>
+                            <div class="stat-volume">{mtd_sell_volume:,.0f} USDT</div>
                         </div>
                         <div class="stat-card sell-card">
-                            <div class="stat-label">Overall (24h)</div>
+                            <div class="stat-label">YTD</div>
+                            <div class="stat-value red">{ytd_sells}</div>
+                            <div class="stat-volume">{ytd_sell_volume:,.0f} USDT</div>
+                        </div>
+                        <div class="stat-card sell-card">
+                            <div class="stat-label">Overall</div>
                             <div class="stat-value red">{overall_sells}</div>
                             <div class="stat-volume">{overall_sell_volume:,.0f} USDT</div>
                         </div>
@@ -1536,7 +1402,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v37.8 Volume Debug • 🟡 Binance 🔵 MEXC 🟣 OKX • Check GitHub Actions logs for debug output
+                v37.6 Direct Scrapers • 🟡 Binance 🔵 MEXC 🟣 OKX • WORKING Buy/Sell detection!
             </footer>
         </div>
         
@@ -1762,7 +1628,7 @@ def generate_feed_html(trades, peg):
 
 # --- MAIN ---
 def main():
-    print("🔍 Running v37.0 (Complete Edition - Binance + MEXC + OKX)...", file=sys.stderr)
+    print("🔍 Running v37.6 (Direct Scrapers - Buy/Sell Detection)...", file=sys.stderr)
     
     # Snapshot 1
     print("   > Snapshot 1/2...", file=sys.stderr)
@@ -1772,28 +1638,20 @@ def main():
     print(f"   > ⏳ Waiting {BURST_WAIT_TIME}s to catch trades...", file=sys.stderr)
     time.sleep(BURST_WAIT_TIME)
     
-    # Snapshot 2
+    # Snapshot 2 (with official rate)
     print("   > Snapshot 2/2...", file=sys.stderr)
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        f_binance = ex.submit(lambda: fetch_p2p_army_exchange("binance"))
-        f_mexc = ex.submit(lambda: fetch_p2p_army_exchange("mexc"))
-        f_okx = ex.submit(lambda: fetch_p2p_army_exchange("okx"))
-        f_off = ex.submit(fetch_official_rate)
-        f_peg = ex.submit(fetch_usdt_peg)
-        
-        bin_ads = f_binance.result() or []
-        mexc_ads = f_mexc.result() or []
-        okx_ads = f_okx.result() or []
-        official = f_off.result() or 0.0
-        peg = f_peg.result() or 1.0
+    snapshot_2 = capture_market_snapshot()
     
-    # Filter outliers
-    bin_ads = remove_outliers(bin_ads, peg)
-    mexc_ads = remove_outliers(mexc_ads, peg)
-    okx_ads = remove_outliers(okx_ads, peg)
+    # Get official rate
+    official = fetch_official_rate() or 0.0
+    peg = fetch_usdt_peg() or 1.0
     
-    snapshot_2 = bin_ads + mexc_ads + okx_ads
-    grouped_ads = {"BINANCE": bin_ads, "MEXC": mexc_ads, "OKX": okx_ads}
+    # Group by source for display
+    grouped_ads = {
+        "BINANCE": [x for x in snapshot_2 if x['source'] == 'BINANCE'],
+        "MEXC": [x for x in snapshot_2 if x['source'] == 'MEXC'],
+        "OKX": [x for x in snapshot_2 if x['source'] == 'OKX']
+    }
     
     if snapshot_2:
         # Detect trades
