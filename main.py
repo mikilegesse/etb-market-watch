@@ -496,16 +496,16 @@ def generate_charts(stats, official_rate):
         # Bottom: Historical Trend (Trading Chart Style)
         ax2 = fig.add_subplot(2, 1, 2)
         if len(dates) > 1:
-            # Smooth the line using interpolation
-            from scipy.interpolate import make_interp_spline
-            import numpy as np
-            
+            # Try smooth interpolation if scipy is available
             if len(dates) > 3:
-                # Convert dates to numbers for interpolation
-                date_nums = mdates.date2num(dates)
-                
-                # Create smooth curve
                 try:
+                    from scipy.interpolate import make_interp_spline
+                    import numpy as np
+                    
+                    # Convert dates to numbers for interpolation
+                    date_nums = mdates.date2num(dates)
+                    
+                    # Create smooth curve
                     x_smooth = np.linspace(date_nums[0], date_nums[-1], 300)
                     spl_median = make_interp_spline(date_nums, medians, k=3)
                     median_smooth = spl_median(x_smooth)
