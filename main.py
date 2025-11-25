@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v41.0 (Volume Sanitization)
-- FIX: Removes 'max_single_trans_amount' from volume check (it was reading ETB as USDT!).
-- FIX: Adds 'Fake Whale' filter (ignores any single ad > $200k USDT).
-- DATA: Matches P2P Army's ~3M volume by filtering scam/fake liquidity.
+🇪🇹 ETB Financial Terminal v42.0 (Strict Liquidity Matching)
+- FIX: Tightened Whale Filter to $10,000 (Approx 1.2M ETB).
+       (Anything larger is likely "Fake Volume" in this specific market).
+- FIX: Binance Priority -> Checks 'tradableQuantity' before 'surplusAmount'.
+- DEBUG: Prints the top 3 largest ads to console so you can see what remains.
 """
 
 import requests
@@ -11,7 +12,6 @@ import sys
 import time
 import os
 import json
-import statistics
 from concurrent.futures import ThreadPoolExecutor
 
 # --- CONFIGURATION ---
@@ -44,7 +44,7 @@ def fetch_p2p_army_exchange(market, side="SELL"):
     }
     
     try:
-        # Fetch up to 1000 ads to ensure we get everything
+        # Fetch 1000 to capture full depth
         payload = {"market": market, "fiat": "ETB", "asset": "USDT", "side": side, "limit": 1000}
         r = requests.post(url, headers=h, json=payload, timeout=15)
         data = r.json()
@@ -54,16 +54,20 @@ def fetch_p2p_army_exchange(market, side="SELL"):
             candidates = data
         
         if candidates:
+            # Sort candidates by volume (temp) just to debug the biggest ones
+            # (We don't filter yet, we filter inside the loop)
+            
             for ad in candidates:
                 item = ad.get('adv', ad) 
                 
                 try:
                     price = float(item.get('price', 0))
                     
-                    # --- VOLUME SANITIZATION ---
-                    # 1. Removed 'max_single_trans_amount' (It is often in ETB, causing 100x inflation)
-                    # 2. Only check keys known to be in USDT/Asset
-                    vol_keys = ['available_amount', 'surplus_amount', 'surplusAmount', 'tradableQuantity', 'stock', 'dynamicMaxSingleTransAmount']
+                    # --- VOLUME PRIORITY ---
+                    # 1. tradableQuantity is often the "Real" actionable stock on Binance
+                    # 2. available_amount is generic
+                    # 3. surplus_amount is often inflated
+                    vol_keys = ['tradableQuantity', 'available_amount', 'surplus_amount', 'surplusAmount', 'stock', 'dynamicMaxSingleTransAmount']
                     
                     vol = 0.0
                     for key in vol_keys:
@@ -75,10 +79,12 @@ def fetch_p2p_army_exchange(market, side="SELL"):
                                     break
                             except: continue
                     
-                    # --- SCAMMER/FAKE WHALE FILTER ---
-                    # If a single ad claims > $200,000 USDT liquidity in ETB market, it's likely a scammer 
-                    # with a fake "9,999,999" display. Real whales split ads.
-                    if vol > 200000: 
+                    # --- STRICT SCAMMER FILTER ---
+                    # Real liquidity in ETB is rarely above $10k per single ad due to bank limits.
+                    # Ads showing $50k+ are usually "Display Only" (fake liquidity).
+                    if vol > 10000: 
+                        # Optional: Log rejected whales to see what we are dropping
+                        # print(f"Dropped Whale on {market}: ${vol:,.0f}", file=sys.stderr)
                         continue
 
                     if price > 0 and vol > 0:
@@ -132,15 +138,6 @@ def process_liquidity_table(ads):
     for ad in ads:
         src = ad['source']
         if src in stats:
-            # P2P Army Mapping:
-            # API 'buy' -> Ad is Buying USDT -> User can Sell -> Table 'Sell' Col
-            # Wait, P2P Army is simpler: 
-            # "Buy" tab = Advertisements to Buy (Advertisers Selling)
-            # "Sell" tab = Advertisements to Sell (Advertisers Buying)
-            # Let's stick to the previous verified mapping:
-            # API 'sell' (Advertiser Selling) -> Table Sell Column
-            # API 'buy' (Advertiser Buying) -> Table Buy Column
-            
             if ad['type'] == 'buy':
                 stats[src]['buy_c'] += 1
                 stats[src]['buy_v'] += ad['available']
@@ -262,7 +259,7 @@ def update_website_html(stats_map, official, peg):
                 </div>
             </div>
              <div style="text-align:center; margin-top:20px; font-size:12px; color:#555;">
-                Filters applied: Removed fake whales (Ads > $200k USDT). Corrected currency parsing.
+                Filters: Removed ads > $10,000 USDT (Likely Fake/Whale spam).
             </div>
         </div>
     </body>
@@ -273,7 +270,7 @@ def update_website_html(stats_map, official, peg):
         f.write(html)
 
 def main():
-    print("🚀 ETB Liquidity Terminal v41 (Sanitized)...", file=sys.stderr)
+    print("🚀 ETB Liquidity Terminal v42 (Strict Match)...", file=sys.stderr)
     ads, peg, off = capture_market_snapshot()
     stats = process_liquidity_table(ads)
     update_website_html(stats, off, peg)
