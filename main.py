@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v44.0 (The "Capped" Logic)
-- FIX: Implements P2P Army's exact logic: "Sum assets with MAX LIMIT of 10,000 USDT".
-- LOGIC: Ads > $10,000 are counted as $10,000. Ads < $10,000 are counted fully.
-- RESULT: Ad Count returns to full (~875) while Volume drops to legitimate levels (~$3.2M).
+🇪🇹 ETB Financial Terminal v45.0 (Ultimate Merge)
+- FEATURE 1: "Liquidity Table" (Purple) -> Matches P2P Army 1:1 (Capped at 10k).
+- FEATURE 2: "Transaction Tracker" (Green/Red) -> Calculates "Bought Today" by watching changes.
+- LOGIC: Runs a loop. If an ad's inventory drops, it records a "Buy".
+- FILTER: Ignores fake whale movements to prevent fake volume spikes.
 """
 
 import requests
@@ -11,58 +12,47 @@ import sys
 import time
 import os
 import json
+import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 # --- CONFIGURATION ---
 P2P_ARMY_KEY = "YJU5RCZ2-P6VTVNNA"
 HTML_FILENAME = "index.html"
-REFRESH_RATE = 60
-VOLUME_CAP = 10000.0  # The P2P Army Limit
+TRADES_FILE = "recent_trades.json"
+SNAPSHOT_FILE = "market_state.json"
+REFRESH_RATE = 45  # Check for trades every 45s
+VOLUME_CAP = 10000.0  # P2P Army Cap for Liquidity Table
+WHALE_IGNORE_THRESHOLD = 20000.0 # Ignore "Trades" larger than this (likely fake ad removal)
 
 # --- FETCHERS ---
 def fetch_official_rate():
     try:
         return float(requests.get("https://open.er-api.com/v6/latest/USD", timeout=5).json()["rates"]["ETB"])
-    except:
-        return 120.0
+    except: return 120.0
 
 def fetch_usdt_peg():
     try:
         return float(requests.get("https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd", timeout=5).json()["tether"]["usd"])
-    except:
-        return 1.00
+    except: return 1.00
 
 def fetch_p2p_army_exchange(market, side="SELL"):
     url = "https://p2p.army/v1/api/get_p2p_order_book"
     ads = []
-    
-    h = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "X-APIKEY": P2P_ARMY_KEY
-    }
+    h = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json", "X-APIKEY": P2P_ARMY_KEY}
     
     try:
-        # Fetch 1000 to capture ALL ads (no filtering)
         payload = {"market": market, "fiat": "ETB", "asset": "USDT", "side": side, "limit": 1000}
         r = requests.post(url, headers=h, json=payload, timeout=15)
         data = r.json()
-        
         candidates = data.get("result", data.get("data", data.get("ads", [])))
-        if not candidates and isinstance(data, list):
-            candidates = data
+        if not candidates and isinstance(data, list): candidates = data
         
         if candidates:
             for ad in candidates:
                 item = ad.get('adv', ad) 
-                
                 try:
                     price = float(item.get('price', 0))
-                    
-                    # Robust Volume Check
-                    vol_keys = ['tradableQuantity', 'available_amount', 'surplus_amount', 'surplusAmount', 'stock', 'dynamicMaxSingleTransAmount']
-                    
+                    vol_keys = ['tradableQuantity', 'available_amount', 'surplus_amount', 'surplusAmount', 'stock']
                     vol = 0.0
                     for key in vol_keys:
                         if key in item and item[key] is not None:
@@ -73,122 +63,168 @@ def fetch_p2p_army_exchange(market, side="SELL"):
                                     break
                             except: continue
                     
-                    # --- NO FILTERING ---
-                    # We capture ALL ads, even the huge ones. 
-                    # We will apply the logic (CAPPING) during the summation step.
                     if price > 0 and vol > 0:
                         ads.append({
                             'source': market.upper(),
+                            'advertiser': item.get('advertiser', {}).get('nickName', item.get('advertiser_name', 'User')),
                             'price': price,
                             'available': vol,
                             'type': side.lower()
                         })
-                except Exception: 
-                    continue
-                    
+                except: continue
     except Exception as e:
-        print(f"   ⚠️ {market.upper()} {side} error: {e}", file=sys.stderr)
-    
+        print(f"   ⚠️ {market} {side}: {e}", file=sys.stderr)
     return ads
 
-# --- MARKET SNAPSHOT ---
 def capture_market_snapshot():
     with ThreadPoolExecutor(max_workers=10) as ex:
         futures = []
         for exchange in ['binance', 'mexc', 'okx']:
             futures.append(ex.submit(lambda e=exchange: fetch_p2p_army_exchange(e, "SELL")))
             futures.append(ex.submit(lambda e=exchange: fetch_p2p_army_exchange(e, "BUY")))
-            
         f_peg = ex.submit(fetch_usdt_peg)
         f_off = ex.submit(fetch_official_rate)
         
         all_ads = []
-        for f in futures:
-            res = f.result() or []
-            all_ads.extend(res)
-            
-        peg = f_peg.result() or 1.0
-        official = f_off.result() or 120.0
-        
-        return all_ads, peg, official
+        for f in futures: all_ads.extend(f.result() or [])
+        return all_ads, f_peg.result() or 1.0, f_off.result() or 120.0
 
-# --- DATA PROCESSING ---
-def process_liquidity_table(ads):
-    stats = {
-        "BINANCE": {"name": "Binance P2P", "icon": "🟡", "buy_c": 0, "sell_c": 0, "buy_v": 0, "sell_v": 0},
-        "OKX":     {"name": "Okx P2P",     "icon": "⚫", "buy_c": 0, "sell_c": 0, "buy_v": 0, "sell_v": 0},
-        "MEXC":    {"name": "Mexc P2P",    "icon": "🟢", "buy_c": 0, "sell_c": 0, "buy_v": 0, "sell_v": 0},
-        "BYBIT":   {"name": "Bybit P2P",   "icon": "⚫", "buy_c": 0, "sell_c": 0, "buy_v": 0, "sell_v": 0},
-        "HTX":     {"name": "HTX P2P",     "icon": "🔵", "buy_c": 0, "sell_c": 0, "buy_v": 0, "sell_v": 0},
-        "BITGET":  {"name": "Bitget P2P",  "icon": "🔵", "buy_c": 0, "sell_c": 0, "buy_v": 0, "sell_v": 0},
-        "KUCOIN":  {"name": "Kucoin P2P",  "icon": "🟢", "buy_c": 0, "sell_c": 0, "buy_v": 0, "sell_v": 0},
-    }
+# --- TRADE DETECTION LOGIC ---
+def load_state():
+    if os.path.exists(SNAPSHOT_FILE):
+        try:
+            with open(SNAPSHOT_FILE, 'r') as f: return json.load(f)
+        except: pass
+    return {}
 
+def save_state(ads):
+    state = {}
     for ad in ads:
-        src = ad['source']
-        if src in stats:
-            
-            # --- THE P2P ARMY LOGIC ---
-            # "Summed up but with maximum limits of amount: 10,000 USDT"
-            # Logic: If Ad > 10,000, count as 10,000. Else count actual.
-            capped_vol = min(ad['available'], VOLUME_CAP)
-            
-            if ad['type'] == 'buy':
-                stats[src]['buy_c'] += 1
-                stats[src]['buy_v'] += capped_vol
-            elif ad['type'] == 'sell':
-                stats[src]['sell_c'] += 1
-                stats[src]['sell_v'] += capped_vol
+        key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
+        state[key] = ad['available']
+    with open(SNAPSHOT_FILE, 'w') as f: json.dump(state, f)
 
-    return stats
+def detect_trades(current_ads):
+    prev_state = load_state()
+    if not prev_state: return []
+    
+    trades = []
+    for ad in current_ads:
+        key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
+        if key in prev_state:
+            prev_vol = prev_state[key]
+            curr_vol = ad['available']
+            diff = abs(prev_vol - curr_vol)
+            
+            # Logic: If inventory DROPPED, someone bought.
+            # Filter: Ignore tiny dust (<5) and huge fake spikes (>20k)
+            if 5 < diff < WHALE_IGNORE_THRESHOLD:
+                if curr_vol < prev_vol:
+                    # If Advertiser (SELL side) inventory drops -> User BOUGHT
+                    # If Advertiser (BUY side) inventory drops -> User SOLD
+                    trade_type = 'buy' if ad['type'] == 'sell' else 'sell'
+                    trades.append({
+                        'type': trade_type,
+                        'source': ad['source'],
+                        'vol': diff,
+                        'price': ad['price'],
+                        'time': time.time()
+                    })
+    return trades
+
+def update_trade_history(new_trades):
+    history = []
+    if os.path.exists(TRADES_FILE):
+        try:
+            with open(TRADES_FILE, 'r') as f: history = json.load(f)
+        except: pass
+    
+    # Add new, sort desc, keep last 24h
+    history.extend(new_trades)
+    cutoff = time.time() - 86400
+    history = [t for t in history if t['time'] > cutoff]
+    
+    with open(TRADES_FILE, 'w') as f: json.dump(history, f)
+    return history
 
 # --- HTML GENERATOR ---
-def update_website_html(stats_map, official, peg):
-    t_buy_c = sum(d['buy_c'] for d in stats_map.values())
-    t_sell_c = sum(d['sell_c'] for d in stats_map.values())
-    t_buy_v = sum(d['buy_v'] for d in stats_map.values())
-    t_sell_v = sum(d['sell_v'] for d in stats_map.values())
+def update_html(ads, history, official, peg):
+    # 1. LIQUIDITY STATS (Capped at 10k Logic)
+    liq_stats = {ex: {'buy_c':0,'sell_c':0,'buy_v':0,'sell_v':0,'icon':i} 
+                 for ex, i in [('BINANCE','🟡'),('OKX','⚫'),('MEXC','🟢')]}
     
+    for ad in ads:
+        if ad['source'] in liq_stats:
+            s = liq_stats[ad['source']]
+            capped_vol = min(ad['available'], VOLUME_CAP)
+            if ad['type'] == 'buy':
+                s['buy_c'] += 1
+                s['buy_v'] += capped_vol
+            else:
+                s['sell_c'] += 1
+                s['sell_v'] += capped_vol
+
+    # 2. TRADE STATS (24h)
+    t_stats = {'buy_c':0, 'sell_c':0, 'buy_v':0, 'sell_v':0}
+    feed_html = ""
+    for t in sorted(history, key=lambda x: x['time'], reverse=True):
+        if t['type'] == 'buy':
+            t_stats['buy_c'] += 1
+            t_stats['buy_v'] += t['vol']
+        else:
+            t_stats['sell_c'] += 1
+            t_stats['sell_v'] += t['vol']
+            
+        # Generate top 10 feed items
+        if len(feed_html.split('div class="feed-item"')) < 11:
+            ago = int(time.time() - t['time'])
+            ago_str = f"{ago//60}m" if ago > 60 else f"{ago}s"
+            color = "#00C805" if t['type'] == 'buy' else "#FF3B30"
+            arrow = "↗" if t['type'] == 'buy' else "↘"
+            feed_html += f"""
+            <div class="feed-item">
+                <span style="color:{color}; font-size:18px; width:20px">{arrow}</span>
+                <span style="color:#888; font-size:12px; width:50px">{ago_str}</span>
+                <span style="color:#fff; font-weight:bold">${t['vol']:,.0f}</span>
+                <span style="color:#666; font-size:12px">via {t['source']}</span>
+            </div>
+            """
+
+    # 3. BUILD TABLE ROWS
     table_rows = ""
     rank = 1
-    order = ["BINANCE", "OKX", "MEXC", "BYBIT", "HTX", "BITGET", "KUCOIN"]
+    t_liq = {'bc':0,'sc':0,'bv':0,'sv':0}
     
-    for key in order:
-        d = stats_map[key]
+    for ex in ['BINANCE', 'OKX', 'MEXC']:
+        d = liq_stats[ex]
         total_c = d['buy_c'] + d['sell_c']
         total_v = d['buy_v'] + d['sell_v']
+        t_liq['bc']+=d['buy_c']; t_liq['sc']+=d['sell_c']
+        t_liq['bv']+=d['buy_v']; t_liq['sv']+=d['sell_v']
         
-        def fmt_n(val, is_money=False):
-            if val == 0: return '<span style="opacity:0.3">-</span>'
-            if is_money: return f"${val:,.0f}"
-            return f"{val}"
-
         table_rows += f"""
         <tr>
             <td style="text-align:center; opacity:0.5">{rank}</td>
-            <td style="display:flex; align-items:center; gap:10px;">
-                <span style="font-size:18px">{d['icon']}</span> <b>{d['name']}</b>
-            </td>
-            <td style="text-align:right">{fmt_n(d['buy_c'])}</td>
-            <td style="text-align:right">{fmt_n(d['sell_c'])}</td>
-            <td style="text-align:right; font-weight:bold">{fmt_n(total_c)}</td>
-            <td style="text-align:right">{fmt_n(d['buy_v'], True)}</td>
-            <td style="text-align:right">{fmt_n(d['sell_v'], True)}</td>
-            <td style="text-align:right; font-weight:bold">{fmt_n(total_v, True)}</td>
+            <td><span style="font-size:16px">{d['icon']}</span> <b>{ex} P2P</b></td>
+            <td style="text-align:right">{d['buy_c']}</td>
+            <td style="text-align:right">{d['sell_c']}</td>
+            <td style="text-align:right; font-weight:bold">{total_c}</td>
+            <td style="text-align:right">${d['buy_v']:,.0f}</td>
+            <td style="text-align:right">${d['sell_v']:,.0f}</td>
+            <td style="text-align:right; font-weight:bold">${total_v:,.0f}</td>
         </tr>
         """
         rank += 1
-
+        
     totals_row = f"""
-    <tr style="background-color: #3b305e; font-weight:bold; border-top: 2px solid #5a4b8a;">
-        <td></td>
-        <td style="text-align:right">Total:</td>
-        <td style="text-align:right">{t_buy_c}</td>
-        <td style="text-align:right">{t_sell_c}</td>
-        <td style="text-align:right">{t_buy_c + t_sell_c}</td>
-        <td style="text-align:right">${t_buy_v:,.0f}</td>
-        <td style="text-align:right">${t_sell_v:,.0f}</td>
-        <td style="text-align:right">${t_buy_v + t_sell_v:,.0f}</td>
+    <tr style="background:#3b305e; font-weight:bold; border-top:2px solid #5a4b8a">
+        <td></td><td>TOTAL</td>
+        <td style="text-align:right">{t_liq['bc']}</td>
+        <td style="text-align:right">{t_liq['sc']}</td>
+        <td style="text-align:right">{t_liq['bc']+t_liq['sc']}</td>
+        <td style="text-align:right">${t_liq['bv']:,.0f}</td>
+        <td style="text-align:right">${t_liq['sv']:,.0f}</td>
+        <td style="text-align:right">${t_liq['bv']+t_liq['sv']:,.0f}</td>
     </tr>
     """
 
@@ -197,79 +233,113 @@ def update_website_html(stats_map, official, peg):
     <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <title>ETB P2P Market Liquidity</title>
-        <meta http-equiv="refresh" content="60">
+        <title>ETB Terminal</title>
+        <meta http-equiv="refresh" content="45">
         <style>
-            body {{ background-color: #1a1a2e; color: #e0e0e0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 40px; display: flex; flex-direction: column; align-items: center; }}
-            .container {{ max-width: 1200px; width: 100%; }}
-            .header {{ text-align: center; margin-bottom: 30px; }}
-            .p2p-table {{ width: 100%; border-collapse: collapse; background-color: #262640; border-radius: 8px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }}
-            .thead-dark {{ background-color: #362b59; }}
-            th {{ padding: 15px; color: #fff; font-weight: 600; font-size: 14px; text-transform: uppercase; }}
-            .group-header {{ background-color: #42356b; border-bottom: 1px solid #55448a; text-align: center; }}
-            td {{ padding: 12px 15px; border-bottom: 1px solid #363655; font-size: 14px; }}
-            tr:hover td {{ background-color: #303050; }}
-            .stats-card {{ background: #22223a; border: 1px solid #333355; padding: 20px; border-radius: 10px; margin-top: 20px; display: flex; justify-content: space-around; }}
-            .stat-val {{ font-size: 24px; font-weight: bold; color: #fff; }}
-            .stat-lbl {{ font-size: 12px; color: #888; text-transform: uppercase; margin-top: 5px; }}
+            body {{ background:#1a1a2e; color:#fff; font-family:sans-serif; margin:0; padding:20px; }}
+            .grid {{ display:grid; grid-template-columns: 2fr 1fr; gap:20px; max-width:1400px; margin:0 auto; }}
+            .card {{ background:#22223a; border-radius:12px; padding:20px; margin-bottom:20px; border:1px solid #333355; }}
+            h3 {{ margin:0 0 15px 0; font-size:16px; opacity:0.7; text-transform:uppercase; letter-spacing:1px; }}
+            
+            /* TRANSACTIONS CARD */
+            .tx-grid {{ display:grid; grid-template-columns: 1fr 1fr; gap:15px; }}
+            .tx-box {{ background:rgba(255,255,255,0.03); padding:15px; border-radius:8px; text-align:center; }}
+            .tx-val {{ font-size:28px; font-weight:bold; display:block; }}
+            .tx-lbl {{ font-size:12px; opacity:0.5; }}
+            
+            /* TABLE */
+            table {{ width:100%; border-collapse:collapse; background:#262640; border-radius:8px; overflow:hidden; }}
+            th {{ background:#362b59; padding:12px; text-align:right; font-size:12px; color:#aaa; }}
+            td {{ padding:10px; border-bottom:1px solid #363655; text-align:right; font-size:14px; }}
+            tr:last-child td {{ border:none; }}
+            
+            /* FEED */
+            .feed-item {{ display:flex; align-items:center; padding:8px 0; border-bottom:1px solid #333; }}
         </style>
     </head>
     <body>
-        <div class="container">
-            <div class="header">
-                <h1>Statistics of volumes and activity of ETB on P2P markets</h1>
-                <p>The table displays ETB (Ethiopian birr) activity, the number and volume of advertisements on P2P crypto exchanges.</p>
-            </div>
-            <table class="p2p-table">
-                <thead>
-                    <tr class="thead-dark">
-                        <th rowspan="2" style="width: 50px;">#</th>
-                        <th rowspan="2" style="text-align:left">P2P Exchange</th>
-                        <th colspan="3" class="group-header">Ads Count</th>
-                        <th colspan="3" class="group-header">**Ads Volume (USDT)</th>
-                    </tr>
-                    <tr class="thead-dark">
-                        <th style="background:#2a2a40; text-align:right; font-size:12px; color:#aaa;">Buy</th>
-                        <th style="background:#2a2a40; text-align:right; font-size:12px; color:#aaa;">Sell</th>
-                        <th style="background:#2a2a40; text-align:right; font-size:12px; color:#fff;">Total</th>
-                        <th style="background:#3d3063; text-align:right; font-size:12px; color:#aaa;">**Buy</th>
-                        <th style="background:#3d3063; text-align:right; font-size:12px; color:#aaa;">**Sell</th>
-                        <th style="background:#3d3063; text-align:right; font-size:12px; color:#fff;">Total</th>
-                    </tr>
-                </thead>
-                <tbody>{table_rows}{totals_row}</tbody>
-            </table>
-            <div class="stats-card">
-                <div style="text-align:center">
-                    <div class="stat-val">{t_buy_c + t_sell_c}</div>
-                    <div class="stat-lbl">Total Active Ads</div>
+        <div class="grid">
+            <div>
+                <div class="card">
+                    <h3>🔴 Live Liquidity (Ads Volume)</h3>
+                    <div style="font-size:12px; color:#aaa; margin-bottom:10px">
+                        Matches P2P Army: Capped at 10,000 USDT max per ad.
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="text-align:center">#</th><th style="text-align:left">Exchange</th>
+                                <th>Buy Ads</th><th>Sell Ads</th><th style="color:#fff">Total</th>
+                                <th>**Buy Vol</th><th>**Sell Vol</th><th style="color:#fff">Total Vol</th>
+                            </tr>
+                        </thead>
+                        <tbody>{table_rows}{totals_row}</tbody>
+                    </table>
                 </div>
-                <div style="text-align:center">
-                    <div class="stat-val" style="color:#4caf50">${t_buy_v + t_sell_v:,.0f}</div>
-                    <div class="stat-lbl">Total Liquidity (USDT)</div>
-                </div>
-                <div style="text-align:center">
-                    <div class="stat-val">{official:.2f}</div>
-                    <div class="stat-lbl">Official Rate</div>
+
+                <div class="card" style="display:flex; justify-content:space-around; text-align:center">
+                    <div>
+                        <div style="font-size:32px; font-weight:bold; color:#4caf50">${t_liq['bv']+t_liq['sv']:,.0f}</div>
+                        <div style="font-size:12px; opacity:0.5">TOTAL LIQUIDITY AVAILABLE</div>
+                    </div>
+                    <div>
+                        <div style="font-size:32px; font-weight:bold">{official:.2f}</div>
+                        <div style="font-size:12px; opacity:0.5">OFFICIAL RATE</div>
+                    </div>
                 </div>
             </div>
-             <div style="text-align:center; margin-top:20px; font-size:12px; color:#555;">
-                Filters: Applied CAPPING logic (Individual ads capped at 10,000 USDT max).
+
+            <div>
+                <div class="card">
+                    <h3>⚡ Transactions (24h Est.)</h3>
+                    <div class="tx-grid">
+                        <div class="tx-box" style="border-bottom:3px solid #00C805">
+                            <div class="tx-lbl" style="color:#00C805">BOUGHT TODAY</div>
+                            <span class="tx-val">${t_stats['buy_v']:,.0f}</span>
+                            <span style="font-size:12px">{t_stats['buy_c']} Trades</span>
+                        </div>
+                        <div class="tx-box" style="border-bottom:3px solid #FF3B30">
+                            <div class="tx-lbl" style="color:#FF3B30">SOLD TODAY</div>
+                            <span class="tx-val">${t_stats['sell_v']:,.0f}</span>
+                            <span style="font-size:12px">{t_stats['sell_c']} Trades</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>Recent Trades</h3>
+                    {feed_html}
+                </div>
             </div>
         </div>
     </body>
     </html>
     """
-    
-    with open(HTML_FILENAME, "w", encoding="utf-8") as f:
-        f.write(html)
+    with open(HTML_FILENAME, "w", encoding="utf-8") as f: f.write(html)
 
 def main():
-    print("🚀 ETB Liquidity Terminal v44 (Capped 10k Logic)...", file=sys.stderr)
-    ads, peg, off = capture_market_snapshot()
-    stats = process_liquidity_table(ads)
-    update_website_html(stats, off, peg)
-    print("✅ HTML Updated.", file=sys.stderr)
+    print("🚀 ETB Ultimate Terminal Started...", file=sys.stderr)
+    while True:
+        try:
+            # 1. Capture Snapshot
+            ads, peg, off = capture_market_snapshot()
+            
+            # 2. Detect Trades (Compare with prev snapshot)
+            new_trades = detect_trades(ads)
+            history = update_trade_history(new_trades)
+            save_state(ads)
+            
+            # 3. Update UI
+            update_html(ads, history, off, peg)
+            
+            # 4. Log
+            t_buy_v = sum(t['vol'] for t in history if t['type']=='buy')
+            print(f"✅ Refreshed. Liquidity: OK | Bought Today: ${t_buy_v:,.0f} | Waiting {REFRESH_RATE}s...", file=sys.stderr)
+            
+        except Exception as e:
+            print(f"❌ Error: {e}", file=sys.stderr)
+            
+        time.sleep(REFRESH_RATE)
 
 if __name__ == "__main__":
     main()
