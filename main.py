@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v37.6 (Stats Fixed + Volume Chart)
-- FIX: Statistics now show 1H/Today/This Week/Overall (not MTD/YTD!)
-- NEW: 1 HOUR transaction card added
-- NEW: Volume comparison chart (Buy vs Sell by exchange)
-- FIX: Time periods make sense for 24h data tracking
-- FIX: Table colors (green sources, pink median)
+🇪🇹 ETB Financial Terminal v37.7 (Volume Chart Fixed)
+- FIX: Volume chart now shows all exchanges (even with 0 data)
+- FIX: Added "No data yet" placeholder when starting
+- FIX: Better debug logging for volume calculation
+- FIX: Color-coded volume labels (green=buy, red=sell)
+- NOTE: 45s wait time is OPTIMAL (don't change to 10min!)
 - EXCHANGES: Binance, MEXC, OKX (all via p2p.army API)
 - TICKER: NYSE-style sliding rate ticker at top
-- CHARTS: Clean with only latest label + volume bars
-- TRACKING: Buy + Sell with separate tracking
+- CHARTS: Clean with latest label + volume bars
+- TRACKING: 1H/Today/Week/24h statistics
 - UI: Enhanced Robinhood-style interface
 """
 
@@ -43,6 +43,27 @@ GRAPH_FILENAME = "etb_neon_terminal.png"
 GRAPH_LIGHT_FILENAME = "etb_light_terminal.png"
 HTML_FILENAME = "index.html"
 
+# TIMING CONFIGURATION
+# BURST_WAIT_TIME determines how long we wait between API checks to detect trades
+# Strategy: SHORT wait (45s) catches MORE trades, not fewer!
+# 
+# How it works:
+# 1. Fetch ads at T=0
+# 2. Wait 45 seconds
+# 3. Fetch ads again at T=45s
+# 4. Compare: Ads that disappeared = SOLD, Ads that appeared = BOUGHT
+#
+# Why 45 seconds is optimal:
+# - Too short (10s): Ads might not have time to appear/disappear
+# - Too long (10min): Miss fast trades, fewer checks per GitHub Actions run
+# - 45s: Sweet spot - proven by v29.1 testing
+#
+# With GitHub Actions running every ~3 minutes:
+# - Each run does 1-2 checks
+# - 45s wait allows enough time for ad state changes
+# - Catches both quick and slow trades
+#
+# DO NOT increase to 10 minutes - this will REDUCE trade detection!
 BURST_WAIT_TIME = 45
 TRADE_RETENTION_MINUTES = 1440  # 24 hours
 MAX_ADS_PER_SOURCE = 200
@@ -598,15 +619,36 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     # Calculate volume by exchange
     volume_by_exchange = calculate_volume_by_exchange(recent_trades)
     
-    # Create volume chart HTML
-    volume_chart_html = ""
-    max_volume = max([v['total'] for v in volume_by_exchange.values()]) if volume_by_exchange else 1
+    # Debug logging
+    print(f"\n📊 Volume by Exchange:")
+    for source, data in volume_by_exchange.items():
+        print(f"  {source}: Buy ${data['buy']:,.0f}, Sell ${data['sell']:,.0f}, Total ${data['total']:,.0f}")
     
-    for source in ['BINANCE', 'MEXC', 'OKX']:
-        if source in volume_by_exchange:
-            data = volume_by_exchange[source]
+    # Create volume chart HTML - ALWAYS show all exchanges
+    volume_chart_html = ""
+    if not volume_by_exchange or all(v['total'] == 0 for v in volume_by_exchange.values()):
+        # No data yet - show placeholder
+        volume_chart_html = """
+        <div style="text-align:center;padding:40px;color:var(--text-secondary)">
+            <div style="font-size:48px;margin-bottom:16px">📊</div>
+            <div style="font-size:16px;font-weight:600;margin-bottom:8px">No Volume Data Yet</div>
+            <div style="font-size:14px">Waiting for trade detection...</div>
+        </div>
+        """
+    else:
+        max_volume = max([v['total'] for v in volume_by_exchange.values()])
+        
+        for source in ['BINANCE', 'MEXC', 'OKX']:
+            # Get data or default to 0
+            data = volume_by_exchange.get(source, {'buy': 0, 'sell': 0, 'total': 0})
             buy_pct = (data['buy'] / max_volume * 100) if max_volume > 0 else 0
             sell_pct = (data['sell'] / max_volume * 100) if max_volume > 0 else 0
+            
+            # Ensure minimum visible width if there's any volume
+            if data['buy'] > 0 and buy_pct < 2:
+                buy_pct = 2
+            if data['sell'] > 0 and sell_pct < 2:
+                sell_pct = 2
             
             # Source emoji and color
             emoji = '🟡' if source == 'BINANCE' else ('🔵' if source == 'MEXC' else '🟣')
@@ -621,11 +663,11 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 <div class="volume-bars">
                     <div class="volume-bar-group">
                         <div class="volume-bar buy-bar" style="width:{buy_pct}%"></div>
-                        <span class="volume-label">${data['buy']:,.0f}</span>
+                        <span class="volume-label buy-label">${data['buy']:,.0f}</span>
                     </div>
                     <div class="volume-bar-group">
                         <div class="volume-bar sell-bar" style="width:{sell_pct}%"></div>
-                        <span class="volume-label">${data['sell']:,.0f}</span>
+                        <span class="volume-label sell-label">${data['sell']:,.0f}</span>
                     </div>
                 </div>
             </div>
@@ -1242,9 +1284,16 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             .volume-label {{
                 font-size: 13px;
-                color: var(--text-secondary);
                 font-weight: 600;
-                min-width: 80px;
+                min-width: 100px;
+            }}
+            
+            .buy-label {{
+                color: #00C805;
+            }}
+            
+            .sell-label {{
+                color: #FF3B30;
             }}
             
             footer {{
@@ -1469,7 +1518,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v37.6 Stats Fixed + Volume Chart • 🟡 Binance 🔵 MEXC 🟣 OKX • 1H/Today/Week/24h tracking
+                v37.7 Volume Chart Fixed • 🟡 Binance 🔵 MEXC 🟣 OKX • 45s optimal timing
             </footer>
         </div>
         
