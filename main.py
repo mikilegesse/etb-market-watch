@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v35.0 (Inventory Drops - v29.1 Method)
+🇪🇹 ETB Financial Terminal v35.1 (MEXC Fix)
 - DETECTION: v29.1's proven inventory tracking (available amount drops)
+- MEXC API: v16.0's proven MEXC fetching method
 - STRUCTURE: v34's clean code organization
 - DISPLAY: Modern feed with 1-hour history
-- PROVEN: Same logic that worked in v29.1
 """
 
 import requests
@@ -136,25 +136,35 @@ def fetch_bybit(side):
     return ads[:MAX_ADS_PER_SOURCE]
 
 def fetch_mexc_api(side):
+    """✅ v16.0's EXACT proven MEXC method - returns full ad data"""
     url = "https://p2p.army/v1/api/get_p2p_order_book"
     ads = []
     h = HEADERS.copy()
     h["X-APIKEY"] = P2P_ARMY_KEY
     
     try:
-        r = requests.post(url, headers=h, json={
-            "market": "mexc", "fiat": "ETB", "asset": "USDT",
-            "side": side, "limit": MAX_ADS_PER_SOURCE
-        }, timeout=10)
-        data = r.json().get("result", {}).get("data", {}).get("ads", [])
+        # v16.0 uses limit: 100 (not MAX_ADS_PER_SOURCE)
+        payload = {"market": "mexc", "fiat": "ETB", "asset": "USDT", "side": side, "limit": 100}
+        r = requests.post(url, headers=h, json=payload, timeout=10)
+        data = r.json()
         
-        for d in data[:MAX_ADS_PER_SOURCE]:
-            ads.append({
-                'source': 'MEXC',
-                'advertiser': d.get('advertiser_name', 'MEXC User'),
-                'price': float(d.get('price')),
-                'available': float(d.get('available_amount', 0)),
-            })
+        # v16.0's exact parsing logic
+        candidates = data.get("result", data.get("data", data.get("ads", [])))
+        if not candidates and isinstance(data, list):
+            candidates = data
+        
+        if candidates:
+            for ad in candidates:
+                if isinstance(ad, dict) and 'price' in ad:
+                    try:
+                        ads.append({
+                            'source': 'MEXC',
+                            'advertiser': ad.get('advertiser_name', ad.get('nickname', 'MEXC User')),
+                            'price': float(ad['price']),
+                            'available': float(ad.get('available_amount', ad.get('amount', 0))),
+                        })
+                    except:
+                        continue
         
         print(f"   MEXC: {len(ads)} ads", file=sys.stderr)
     except Exception as e:
@@ -513,7 +523,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market Watch v35</title>
+        <title>ETB Market Watch v35.1</title>
         <style>
             :root {{ --bg: #050505; --card: #111; --text: #00ff9d; --sub: #ccc; --mute: #666; --accent: #ff0055; --link: #00bfff; --gold: #ffcc00; --border: #333; }}
             [data-theme="light"] {{ --bg: #f4f4f9; --card: #fff; --text: #1a1a1a; --sub: #333; --mute: #888; --accent: #d63384; --link: #0d6efd; --gold: #ffc107; --border: #ddd; }}
@@ -556,7 +566,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         <div class="container">
             <header>
                 <h1>ETB MARKET INTELLIGENCE</h1>
-                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// INVENTORY TRACKING (v29.1 Proven Method) ///</div>
+                <div style="color:var(--mute); letter-spacing:4px; font-size:0.8rem;">/// INVENTORY TRACKING (v29.1 + MEXC v16.0 Fix) ///</div>
                 <div class="toggle" onclick="toggleTheme()">🌓 Theme</div>
             </header>
 
@@ -618,7 +628,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
 
 # --- 7. MAIN (v29.1 BURST SCAN) ---
 def main():
-    print("🔍 Running v35.0 (Inventory Tracking - v29.1 Method)...", file=sys.stderr)
+    print("🔍 Running v35.1 (MEXC v16.0 Fix)...", file=sys.stderr)
     
     # 1. SNAPSHOT 1
     print("   > Snapshot 1/2...", file=sys.stderr)
