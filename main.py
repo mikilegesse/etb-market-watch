@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v37.3 (Feed & Chart Fixed)
-- FIX: Feed now shows NEWEST first (not oldest!)
-- FIX: Chart colors restored to yellow/green style
-- FIX: Added data labels on 24h trend chart
+🇪🇹 ETB Financial Terminal v37.4 (Color & Label Fixed)
+- FIX: Chart shows only LATEST label in bright cyan (not cluttered!)
+- FIX: Binance yellow 🟡, MEXC blue 🔵, OKX purple 🟣 (visible on dark!)
+- FIX: Source colors in ticker, feed, and tables all consistent
 - NEW: Statistics panel (Today/MTD/YTD/Overall totals)
 - EXCHANGES: Binance, MEXC, OKX (all via p2p.army API)
 - TICKER: NYSE-style sliding rate ticker at top
-- CHARTS: Interactive tooltips + data labels
+- CHARTS: Interactive tooltips + latest value label
 - TRACKING: Buy + Sell with proper feed display
 - UI: Enhanced Robinhood-style interface
 """
@@ -401,16 +401,19 @@ def generate_charts(stats, official_rate):
             if any(offs):
                 line2 = ax2.plot(dates, offs, color=style["fg"], linestyle="--", linewidth=1.5, alpha=0.7, label='Official Rate')[0]
             
-            # Add data labels on the lines
-            # Label every 12th point to avoid clutter
-            for i in range(0, len(dates), max(1, len(dates)//12)):
-                if i < len(medians):
-                    ax2.text(dates[i], medians[i], f'{medians[i]:.1f}', 
-                            fontsize=8, ha='center', va='bottom', color='#00ff9d' if mode == 'dark' else '#00a876',
-                            fontweight='bold')
-                    if i < len(offs) and offs[i]:
-                        ax2.text(dates[i], offs[i], f'{offs[i]:.1f}', 
-                                fontsize=7, ha='center', va='top', color=style["fg"], alpha=0.7)
+            # Add ONLY THE LATEST label in bright color
+            if len(medians) > 0:
+                latest_idx = len(medians) - 1
+                # Latest black market rate in bright cyan
+                ax2.text(dates[latest_idx], medians[latest_idx], f'{medians[latest_idx]:.1f}', 
+                        fontsize=10, ha='left', va='bottom', color='#00ffff',
+                        fontweight='bold', bbox=dict(boxstyle='round,pad=0.3', facecolor='black', alpha=0.7))
+                
+                # Latest official rate in white
+                if latest_idx < len(offs) and offs[latest_idx]:
+                    ax2.text(dates[latest_idx], offs[latest_idx], f'{offs[latest_idx]:.1f}', 
+                            fontsize=9, ha='left', va='top', color='white', 
+                            fontweight='bold', bbox=dict(boxstyle='round,pad=0.3', facecolor='black', alpha=0.7))
             
             # Add legend
             ax2.legend(loc='upper left', framealpha=0.8, facecolor=style["bg"], edgecolor=style["fg"])
@@ -567,9 +570,21 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     for item in ticker_items * 3:  # Repeat for continuous scroll
         change_symbol = "▲" if item['change'] > 0 else "▼" if item['change'] < 0 else "━"
         change_color = "#00C805" if item['change'] > 0 else "#FF3B30" if item['change'] < 0 else "#8E8E93"
+        
+        # Add emoji and color for each source
+        source_display = item['source']
+        if item['source'] == 'BINANCE':
+            source_display = f"🟡 {item['source']}"
+        elif item['source'] == 'MEXC':
+            source_display = f"🔵 {item['source']}"
+        elif item['source'] == 'OKX':
+            source_display = f"🟣 {item['source']}"
+        elif item['source'] == 'Official':
+            source_display = f"💵 {item['source']}"
+        
         ticker_html += f"""
         <div class="ticker-item">
-            <span class="ticker-source">{item['source']}</span>
+            <span class="ticker-source">{source_display}</span>
             <span class="ticker-price">{item['median']:.2f} ETB</span>
             <span class="ticker-change" style="color:{change_color}">{change_symbol}</span>
         </div>
@@ -1174,7 +1189,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                                 🔵 MEXC
                             </button>
                             <button class="source-filter-btn" data-source="OKX" onclick="filterBySource('OKX')" style="background:transparent;color:var(--text-secondary);border:1px solid var(--border);padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">
-                                ⚫ OKX
+                                🟣 OKX
                             </button>
                         </div>
                     </div>
@@ -1213,7 +1228,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v37.3 Feed & Chart Fixed • Binance, MEXC, OKX • 45s tracking, 24h history
+                v37.4 Color & Label Fixed • 🟡 Binance 🔵 MEXC 🟣 OKX • 45s tracking, 24h history
             </footer>
         </div>
         
@@ -1326,14 +1341,14 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                     
                     let sourceColor, sourceEmoji;
                     if (trade.source === 'BINANCE') {{
-                        sourceColor = '#F3BA2F';
+                        sourceColor = '#F3BA2F';  // Yellow
                         sourceEmoji = '🟡';
                     }} else if (trade.source === 'MEXC') {{
-                        sourceColor = '#2E55E6';
+                        sourceColor = '#2E55E6';  // Blue
                         sourceEmoji = '🔵';
                     }} else {{
-                        sourceColor = '#000000';
-                        sourceEmoji = '⚫';
+                        sourceColor = '#A855F7';  // Purple (OKX)
+                        sourceEmoji = '🟣';
                     }}
                     
                     return `
@@ -1406,11 +1421,11 @@ def generate_feed_html(trades, peg):
         
         source = trade.get('source', 'Unknown')
         if source == 'BINANCE':
-            emoji, color = '🟡', '#F3BA2F'
+            emoji, color = '🟡', '#F3BA2F'  # Yellow
         elif source == 'MEXC':
-            emoji, color = '🔵', '#2E55E6'
+            emoji, color = '🔵', '#2E55E6'  # Blue
         else:
-            emoji, color = '⚫', '#000000'
+            emoji, color = '🟣', '#A855F7'  # Purple (OKX)
         
         html += f"""
         <div class="feed-item">
