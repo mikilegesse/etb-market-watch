@@ -6,79 +6,18 @@
         <title>ETB P2P Market Liquidity</title>
         <meta http-equiv="refresh" content="60">
         <style>
-            body {
-                background-color: #1a1a2e;
-                color: #e0e0e0;
-                font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-                margin: 0;
-                padding: 40px;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-            }
-            .container {
-                max-width: 1200px;
-                width: 100%;
-            }
-            .header {
-                text-align: center;
-                margin-bottom: 30px;
-            }
-            .header h1 { margin: 0; font-size: 28px; }
-            .header p { color: #a0a0b0; font-size: 14px; margin-top: 5px; }
-            
-            /* P2P ARMY STYLE TABLE */
-            .p2p-table {
-                width: 100%;
-                border-collapse: collapse;
-                background-color: #262640;
-                border-radius: 8px;
-                overflow: hidden;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-            }
-            
-            /* Header Groups */
-            .thead-dark {
-                background-color: #362b59; /* The purple top bar */
-            }
-            
-            th {
-                padding: 15px;
-                color: #fff;
-                font-weight: 600;
-                font-size: 14px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            
-            .group-header {
-                background-color: #42356b;
-                border-bottom: 1px solid #55448a;
-                text-align: center;
-            }
-            
-            td {
-                padding: 12px 15px;
-                border-bottom: 1px solid #363655;
-                font-size: 14px;
-            }
-            
-            tr:last-child td { border-bottom: none; }
+            body { background-color: #1a1a2e; color: #e0e0e0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 40px; display: flex; flex-direction: column; align-items: center; }
+            .container { max-width: 1200px; width: 100%; }
+            .header { text-align: center; margin-bottom: 30px; }
+            .p2p-table { width: 100%; border-collapse: collapse; background-color: #262640; border-radius: 8px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+            .thead-dark { background-color: #362b59; }
+            th { padding: 15px; color: #fff; font-weight: 600; font-size: 14px; text-transform: uppercase; }
+            .group-header { background-color: #42356b; border-bottom: 1px solid #55448a; text-align: center; }
+            td { padding: 12px 15px; border-bottom: 1px solid #363655; font-size: 14px; }
             tr:hover td { background-color: #303050; }
-            
-            .stats-card {
-                background: #22223a;
-                border: 1px solid #333355;
-                padding: 20px;
-                border-radius: 10px;
-                margin-top: 20px;
-                display: flex;
-                justify-content: space-around;
-            }
-            .stat-item { text-align: center; }
+            .stats-card { background: #22223a; border: 1px solid #333355; padding: 20px; border-radius: 10px; margin-top: 20px; display: flex; justify-content: space-around; }
             .stat-val { font-size: 24px; font-weight: bold; color: #fff; }
             .stat-lbl { font-size: 12px; color: #888; text-transform: uppercase; margin-top: 5px; }
-            
         </style>
     </head>
     <body>
@@ -87,40 +26,35 @@
                 <h1>Statistics of volumes and activity of ETB on P2P markets</h1>
                 <p>The table displays ETB (Ethiopian birr) activity, the number and volume of advertisements on P2P crypto exchanges.</p>
             </div>
-
             <table class="p2p-table">
                 <thead>
                     <tr class="thead-dark">
                         <th rowspan="2" style="width: 50px;">#</th>
                         <th rowspan="2" style="text-align:left">P2P Exchange</th>
-                        <th colspan="3" class="group-header" style="background: #33334d;">Ads Count</th>
-                        <th colspan="3" class="group-header" style="background: #4a3b78;">**Ads Volume (USDT)</th>
+                        <th colspan="3" class="group-header">Ads Count</th>
+                        <th colspan="3" class="group-header">**Ads Volume (USDT)</th>
                     </tr>
                     <tr class="thead-dark">
                         <th style="background:#2a2a40; text-align:right; font-size:12px; color:#aaa;">Buy</th>
                         <th style="background:#2a2a40; text-align:right; font-size:12px; color:#aaa;">Sell</th>
                         <th style="background:#2a2a40; text-align:right; font-size:12px; color:#fff;">Total</th>
-                        
                         <th style="background:#3d3063; text-align:right; font-size:12px; color:#aaa;">**Buy</th>
                         <th style="background:#3d3063; text-align:right; font-size:12px; color:#aaa;">**Sell</th>
                         <th style="background:#3d3063; text-align:right; font-size:12px; color:#fff;">Total</th>
                     </tr>
                 </thead>
                 <tbody>
-                    
         <tr>
             <td style="text-align:center; opacity:0.5">1</td>
             <td style="display:flex; align-items:center; gap:10px;">
                 <span style="font-size:18px">🟡</span> <b>Binance P2P</b>
             </td>
-            
             <td style="text-align:right">5</td>
-            <td style="text-align:right">100</td>
-            <td style="text-align:right; font-weight:bold">105</td>
-            
-            <td style="text-align:right"><span style="opacity:0.3">-</span></td>
-            <td style="text-align:right"><span style="opacity:0.3">-</span></td>
-            <td style="text-align:right; font-weight:bold"><span style="opacity:0.3">-</span></td>
+            <td style="text-align:right">784</td>
+            <td style="text-align:right; font-weight:bold">789</td>
+            <td style="text-align:right">$485</td>
+            <td style="text-align:right">$36,206,010</td>
+            <td style="text-align:right; font-weight:bold">$36,206,495</td>
         </tr>
         
         <tr>
@@ -128,14 +62,12 @@
             <td style="display:flex; align-items:center; gap:10px;">
                 <span style="font-size:18px">⚫</span> <b>Okx P2P</b>
             </td>
-            
             <td style="text-align:right">1</td>
             <td style="text-align:right">99</td>
             <td style="text-align:right; font-weight:bold">100</td>
-            
-            <td style="text-align:right"><span style="opacity:0.3">-</span></td>
-            <td style="text-align:right"><span style="opacity:0.3">-</span></td>
-            <td style="text-align:right; font-weight:bold"><span style="opacity:0.3">-</span></td>
+            <td style="text-align:right">$100</td>
+            <td style="text-align:right">$904,686</td>
+            <td style="text-align:right; font-weight:bold">$904,786</td>
         </tr>
         
         <tr>
@@ -143,14 +75,12 @@
             <td style="display:flex; align-items:center; gap:10px;">
                 <span style="font-size:18px">🟢</span> <b>Mexc P2P</b>
             </td>
-            
             <td style="text-align:right">52</td>
-            <td style="text-align:right">56</td>
-            <td style="text-align:right; font-weight:bold">108</td>
-            
-            <td style="text-align:right"><span style="opacity:0.3">-</span></td>
-            <td style="text-align:right"><span style="opacity:0.3">-</span></td>
-            <td style="text-align:right; font-weight:bold"><span style="opacity:0.3">-</span></td>
+            <td style="text-align:right">54</td>
+            <td style="text-align:right; font-weight:bold">106</td>
+            <td style="text-align:right">$24,704</td>
+            <td style="text-align:right">$119,823</td>
+            <td style="text-align:right; font-weight:bold">$144,527</td>
         </tr>
         
         <tr>
@@ -158,11 +88,9 @@
             <td style="display:flex; align-items:center; gap:10px;">
                 <span style="font-size:18px">⚫</span> <b>Bybit P2P</b>
             </td>
-            
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right; font-weight:bold"><span style="opacity:0.3">-</span></td>
-            
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right; font-weight:bold"><span style="opacity:0.3">-</span></td>
@@ -173,11 +101,9 @@
             <td style="display:flex; align-items:center; gap:10px;">
                 <span style="font-size:18px">🔵</span> <b>HTX P2P</b>
             </td>
-            
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right; font-weight:bold"><span style="opacity:0.3">-</span></td>
-            
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right; font-weight:bold"><span style="opacity:0.3">-</span></td>
@@ -188,11 +114,9 @@
             <td style="display:flex; align-items:center; gap:10px;">
                 <span style="font-size:18px">🔵</span> <b>Bitget P2P</b>
             </td>
-            
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right; font-weight:bold"><span style="opacity:0.3">-</span></td>
-            
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right; font-weight:bold"><span style="opacity:0.3">-</span></td>
@@ -203,48 +127,39 @@
             <td style="display:flex; align-items:center; gap:10px;">
                 <span style="font-size:18px">🟢</span> <b>Kucoin P2P</b>
             </td>
-            
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right; font-weight:bold"><span style="opacity:0.3">-</span></td>
-            
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right"><span style="opacity:0.3">-</span></td>
             <td style="text-align:right; font-weight:bold"><span style="opacity:0.3">-</span></td>
         </tr>
         
-                    
     <tr style="background-color: #3b305e; font-weight:bold; border-top: 2px solid #5a4b8a;">
         <td></td>
         <td style="text-align:right">Total:</td>
         <td style="text-align:right">58</td>
-        <td style="text-align:right">255</td>
-        <td style="text-align:right">313</td>
-        <td style="text-align:right">$0</td>
-        <td style="text-align:right">$0</td>
-        <td style="text-align:right">$0</td>
+        <td style="text-align:right">937</td>
+        <td style="text-align:right">995</td>
+        <td style="text-align:right">$25,289</td>
+        <td style="text-align:right">$37,230,519</td>
+        <td style="text-align:right">$37,255,808</td>
     </tr>
-    
-                </tbody>
+    </tbody>
             </table>
-
             <div class="stats-card">
-                <div class="stat-item">
-                    <div class="stat-val">313</div>
+                <div style="text-align:center">
+                    <div class="stat-val">995</div>
                     <div class="stat-lbl">Total Active Ads</div>
                 </div>
-                <div class="stat-item">
-                    <div class="stat-val" style="color:#4caf50">$0</div>
+                <div style="text-align:center">
+                    <div class="stat-val" style="color:#4caf50">$37,255,808</div>
                     <div class="stat-lbl">Total Liquidity (USDT)</div>
                 </div>
-                <div class="stat-item">
+                <div style="text-align:center">
                     <div class="stat-val">153.41</div>
                     <div class="stat-lbl">Official Rate</div>
                 </div>
-            </div>
-            
-            <div style="text-align:center; margin-top:20px; font-size:12px; color:#555;">
-                Data refreshed every 60s. **Buy/Sell columns mapped to Advertiser Side to match P2P Army conventions.
             </div>
         </div>
     </body>
