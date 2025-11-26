@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v38.1 (Binance Buy+Sell Fix!)
-- FIX: Fetch BOTH buy AND sell ads from Binance (was only sell!)
-- FIX: Increased ads from 20 → 50 per side (100 total from Binance!)
-- FIX: Should catch WAY more activity now
-- KEEP: Direct Binance P2P API (reliable)
+🇪🇹 ETB Financial Terminal v38.2 (Back to p2p.army!)
+- FIX: Use p2p.army API for Binance (direct API returned 0 ads!)
+- KEEP: Fetch BOTH buy AND sell ads (100 total from Binance!)
 - KEEP: 3-way detection (disappeared/new/changed)
-- KEEP: MEXC/OKX via p2p.army
+- KEEP: Enhanced detection system
+- ALL: Use p2p.army for all exchanges (MEXC, OKX, Binance)
 - NOTE: 45s wait time still optimal
-- EXCHANGES: Binance (Direct API), MEXC, OKX (p2p.army)
+- EXCHANGES: Binance, MEXC, OKX (all via p2p.army)
 - TICKER: NYSE-style sliding rate ticker at top
 - CHARTS: Clean with latest label + volume bars
 - TRACKING: 1H/Today/Week/24h statistics
@@ -184,18 +183,30 @@ def fetch_p2p_army_exchange(market, side="SELL"):
                     except Exception as e:
                         continue
         
-        print(f"   {market.upper()}: {len(ads)} ads", file=sys.stderr)
+        print(f"   {market.upper()} {side}: {len(ads)} ads", file=sys.stderr)
     except Exception as e:
-        print(f"   {market.upper()} error: {e}", file=sys.stderr)
+        print(f"   {market.upper()} {side} error: {e}", file=sys.stderr)
     
     return ads
 
+def fetch_binance_both_sides():
+    """Fetch BOTH buy and sell ads from Binance via p2p.army"""
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f_sell = ex.submit(lambda: fetch_p2p_army_exchange("binance", "SELL"))
+        f_buy = ex.submit(lambda: fetch_p2p_army_exchange("binance", "BUY"))
+        
+        sell_ads = f_sell.result() or []
+        buy_ads = f_buy.result() or []
+        
+        all_ads = sell_ads + buy_ads
+        print(f"   BINANCE Total: {len(all_ads)} ads ({len(sell_ads)} sells, {len(buy_ads)} buys)", file=sys.stderr)
+        return all_ads
 # --- MARKET SNAPSHOT ---
 def capture_market_snapshot():
     with ThreadPoolExecutor(max_workers=10) as ex:
-        f_binance = ex.submit(fetch_binance_p2p_both_sides)  # Fetch BOTH buy and sell!
-        f_mexc = ex.submit(lambda: fetch_p2p_army_exchange("mexc"))
-        f_okx = ex.submit(lambda: fetch_p2p_army_exchange("okx"))
+        f_binance = ex.submit(fetch_binance_both_sides)  # Use p2p.army for Binance!
+        f_mexc = ex.submit(lambda: fetch_p2p_army_exchange("mexc", "SELL"))
+        f_okx = ex.submit(lambda: fetch_p2p_army_exchange("okx", "SELL"))
         f_peg = ex.submit(fetch_usdt_peg)
         
         binance_data = f_binance.result() or []
@@ -1674,7 +1685,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v38.1 Buy+Sell Fix • 🟡 Binance (50 buys + 50 sells!) 🔵 MEXC 🟣 OKX • Full market coverage
+                v38.2 p2p.army • 🟡 Binance (p2p.army buy+sell) 🔵 MEXC 🟣 OKX • All via p2p.army API
             </footer>
         </div>
         
