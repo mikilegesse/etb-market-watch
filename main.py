@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v38.0 (Major Rewrite - Direct APIs!)
-- MAJOR: Use Binance P2P API directly (NOT p2p.army!)
-- MAJOR: Track ad appearances/disappearances (not just inventory)
-- NEW: 3-way detection: Inventory changes + New ads + Disappeared ads
-- FIX: Should finally catch trades properly!
-- KEEP: MEXC/OKX still use p2p.army (they work)
-- CRITICAL: This is complete detection system rewrite
+🇪🇹 ETB Financial Terminal v38.1 (Binance Buy+Sell Fix!)
+- FIX: Fetch BOTH buy AND sell ads from Binance (was only sell!)
+- FIX: Increased ads from 20 → 50 per side (100 total from Binance!)
+- FIX: Should catch WAY more activity now
+- KEEP: Direct Binance P2P API (reliable)
+- KEEP: 3-way detection (disappeared/new/changed)
+- KEEP: MEXC/OKX via p2p.army
 - NOTE: 45s wait time still optimal
 - EXCHANGES: Binance (Direct API), MEXC, OKX (p2p.army)
 - TICKER: NYSE-style sliding rate ticker at top
@@ -103,7 +103,7 @@ def fetch_binance_p2p_direct(side="SELL"):
             "page": 1,
             "payTypes": [],
             "publisherType": None,
-            "rows": 20,
+            "rows": 50,  # Increased from 20 to 50 to catch more activity!
             "tradeType": side,  # "SELL" or "BUY"
         }
         
@@ -127,12 +127,29 @@ def fetch_binance_p2p_direct(side="SELL"):
                         'price': float(adv.get('price', 0)),
                         'available': float(adv.get('surplusAmount', 0)),
                         'ad_id': adv.get('advNo', ''),  # Unique ad ID for tracking
+                        'trade_type': side.lower(),  # Track if this is buy or sell ad
                     })
                 except Exception as e:
                     continue
         
-        print(f"   BINANCE (Direct API): {len(ads)} ads", file=sys.stderr)
+        print(f"   BINANCE (Direct API) {side}: {len(ads)} ads", file=sys.stderr)
     except Exception as e:
+        print(f"   BINANCE (Direct API) {side} error: {e}", file=sys.stderr)
+    
+    return ads
+
+def fetch_binance_p2p_both_sides():
+    """Fetch BOTH buy and sell ads from Binance"""
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f_sell = ex.submit(lambda: fetch_binance_p2p_direct("SELL"))
+        f_buy = ex.submit(lambda: fetch_binance_p2p_direct("BUY"))
+        
+        sell_ads = f_sell.result() or []
+        buy_ads = f_buy.result() or []
+        
+        all_ads = sell_ads + buy_ads
+        print(f"   BINANCE Total: {len(all_ads)} ads ({len(sell_ads)} sells, {len(buy_ads)} buys)", file=sys.stderr)
+        return all_ads
         print(f"   BINANCE (Direct API) error: {e}", file=sys.stderr)
     
     return ads
@@ -176,7 +193,7 @@ def fetch_p2p_army_exchange(market, side="SELL"):
 # --- MARKET SNAPSHOT ---
 def capture_market_snapshot():
     with ThreadPoolExecutor(max_workers=10) as ex:
-        f_binance = ex.submit(fetch_binance_p2p_direct)  # Use direct Binance API!
+        f_binance = ex.submit(fetch_binance_p2p_both_sides)  # Fetch BOTH buy and sell!
         f_mexc = ex.submit(lambda: fetch_p2p_army_exchange("mexc"))
         f_okx = ex.submit(lambda: fetch_p2p_army_exchange("okx"))
         f_peg = ex.submit(fetch_usdt_peg)
@@ -188,7 +205,6 @@ def capture_market_snapshot():
         
         total_before = len(binance_data) + len(mexc_data) + len(okx_data)
         print(f"   📊 Collected {total_before} ads total", file=sys.stderr)
-        print(f"      Binance: {len(binance_data)} sells, 0 buys", file=sys.stderr)
         print(f"      MEXC: {len(mexc_data)} ads", file=sys.stderr)
         print(f"      OKX: {len(okx_data)} ads", file=sys.stderr)
         
@@ -1658,7 +1674,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v38.0 Direct APIs • 🟡 Binance (Direct API!) 🔵 MEXC 🟣 OKX • Tracks New/Disappeared/Changed ads
+                v38.1 Buy+Sell Fix • 🟡 Binance (50 buys + 50 sells!) 🔵 MEXC 🟣 OKX • Full market coverage
             </footer>
         </div>
         
