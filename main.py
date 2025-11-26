@@ -259,24 +259,31 @@ def save_market_state(current_ads):
         json.dump(state, f)
 
 def detect_real_trades(current_ads, peg):
-    """Enhanced detection: Track inventory changes + ad appearances/disappearances"""
+    """DEBUG VERSION: Hyper-sensitive detection + Total Volume Check"""
     prev_state = load_market_state()
     
     if not prev_state:
-        print("   > First run - establishing baseline", file=sys.stderr)
+        print("    > First run - establishing baseline", file=sys.stderr)
         return []
     
     trades = []
     sources_checked = {'BINANCE': 0, 'MEXC': 0, 'OKX': 0}
-    inventory_changes = []  # Track all inventory changes for debugging
+    inventory_changes = [] 
     
+    # --- DEBUG: Calculate Total Volume of Both Snapshots ---
+    vol_prev = sum(prev_state.values())
+    vol_curr = sum([ad['available'] for ad in current_ads])
+    print(f"    🔍 DEBUG: Baseline Vol: ${vol_prev:,.0f} vs Current Vol: ${vol_curr:,.0f}", file=sys.stderr)
+    print(f"    🔍 DEBUG: Raw Difference: ${vol_curr - vol_prev:,.0f}", file=sys.stderr)
+    # -------------------------------------------------------
+
     # Build current state for comparison
     current_state = {}
     for ad in current_ads:
         key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
         current_state[key] = ad['available']
     
-    # 1. Check for DISAPPEARED ads (someone bought entire ad!)
+    # 1. Check for DISAPPEARED ads
     disappeared_ads = set(prev_state.keys()) - set(current_state.keys())
     for key in disappeared_ads:
         parts = key.split('_')
@@ -284,18 +291,22 @@ def detect_real_trades(current_ads, peg):
             source = parts[0].upper()
             if source in sources_checked:
                 vol = prev_state[key]
-                if vol >= 10:  # Only count if significant volume
-                    trades.append({
-                        'type': 'sell',
-                        'source': source,
-                        'user': parts[1],
-                        'price': float(parts[2]) / peg,
-                        'vol_usd': vol,
-                        'timestamp': time.time()
-                    })
-                    print(f"   🔴 SOLD OUT: {source} - {parts[1][:15]} (ad disappeared, {vol:,.0f} USDT)", file=sys.stderr)
-    
-    # 2. Check for NEW ads (someone posted new listing!)
+                # LOWERED THRESHOLD TO $1
+                if vol >= 1: 
+                    try:
+                        price = float(parts[-1]) / peg # Use -1 in case user has underscore
+                        trades.append({
+                            'type': 'sell',
+                            'source': source,
+                            'user': parts[1],
+                            'price': price,
+                            'vol_usd': vol,
+                            'timestamp': time.time()
+                        })
+                        print(f"    🔴 SOLD OUT: {source} - {parts[1][:15]} (ad disappeared, {vol:,.0f} USDT)", file=sys.stderr)
+                    except: pass
+
+    # 2. Check for NEW ads
     new_ads = set(current_state.keys()) - set(prev_state.keys())
     for key in new_ads:
         for ad in current_ads:
@@ -304,7 +315,8 @@ def detect_real_trades(current_ads, peg):
                 source = ad['source'].upper()
                 if source in sources_checked:
                     vol = ad['available']
-                    if vol >= 10:  # Only count if significant volume
+                    # LOWERED THRESHOLD TO $1
+                    if vol >= 1:
                         trades.append({
                             'type': 'buy',
                             'source': source,
@@ -313,17 +325,16 @@ def detect_real_trades(current_ads, peg):
                             'vol_usd': vol,
                             'timestamp': time.time()
                         })
-                        print(f"   🟢 NEW AD: {source} - {ad['advertiser'][:15]} (posted {vol:,.0f} USDT)", file=sys.stderr)
+                        print(f"    🟢 NEW AD: {source} - {ad['advertiser'][:15]} (posted {vol:,.0f} USDT)", file=sys.stderr)
                 break
     
-    # 3. Check for INVENTORY CHANGES in existing ads
+    # 3. Check for INVENTORY CHANGES
     for ad in current_ads:
         source = ad['source'].upper()
         if source not in sources_checked:
             continue
         
         sources_checked[source] += 1
-        
         key = f"{ad['source']}_{ad['advertiser']}_{ad['price']}"
         
         if key in prev_state:
@@ -331,8 +342,8 @@ def detect_real_trades(current_ads, peg):
             curr_inventory = ad['available']
             diff = abs(curr_inventory - prev_inventory)
             
-            # Log inventory changes (even small ones)
-            if diff > 0:
+            # LOWERED THRESHOLD TO $1 (Detects tiny changes)
+            if diff >= 1:
                 inventory_changes.append({
                     'source': source,
                     'user': ad['advertiser'][:15],
@@ -342,7 +353,7 @@ def detect_real_trades(current_ads, peg):
                     'direction': 'down' if curr_inventory < prev_inventory else 'up'
                 })
             
-            # SELL: Inventory dropped (lowered threshold from 5 to 1 USDT)
+            # SELL
             if curr_inventory < prev_inventory and diff >= 1:
                 trades.append({
                     'type': 'sell',
@@ -352,9 +363,9 @@ def detect_real_trades(current_ads, peg):
                     'vol_usd': diff,
                     'timestamp': time.time()
                 })
-                print(f"   🔴 SELL: {source} - {ad['advertiser'][:15]} sold {diff:,.0f} USDT @ {ad['price']/peg:.2f} ETB", file=sys.stderr)
+                print(f"    🔴 SELL: {source} - {ad['advertiser'][:15]} sold {diff:,.0f} USDT", file=sys.stderr)
             
-            # BUY: Inventory increased (lowered threshold from 5 to 1 USDT)
+            # BUY
             elif curr_inventory > prev_inventory and diff >= 1:
                 trades.append({
                     'type': 'buy',
@@ -364,21 +375,12 @@ def detect_real_trades(current_ads, peg):
                     'vol_usd': diff,
                     'timestamp': time.time()
                 })
-                print(f"   🟢 BUY: {source} - {ad['advertiser'][:15]} bought {diff:,.0f} USDT @ {ad['price']/peg:.2f} ETB", file=sys.stderr)
+                print(f"    🟢 BUY: {source} - {ad['advertiser'][:15]} bought {diff:,.0f} USDT", file=sys.stderr)
     
-    # Debug: Show inventory changes detected
-    if inventory_changes:
-        print(f"\n   📊 Inventory Changes Detected: {len(inventory_changes)}", file=sys.stderr)
-        for i, change in enumerate(inventory_changes[:5]):  # Show first 5
-            print(f"      {i+1}. {change['source']} {change['user']}: {change['prev']} → {change['curr']} ({change['direction']} {change['diff']} USDT)", file=sys.stderr)
-        if len(inventory_changes) > 5:
-            print(f"      ... and {len(inventory_changes)-5} more changes", file=sys.stderr)
-    else:
-        print(f"\n   ⚠️  NO inventory changes detected between snapshots!", file=sys.stderr)
-        print(f"   This means: No ads appeared, disappeared, or had inventory changes", file=sys.stderr)
+    if not trades:
+        print(f"\n    ⚠️  No changes > $1 detected.", file=sys.stderr)
     
-    print(f"\n   > Checked: Binance={sources_checked.get('BINANCE', 0)}, MEXC={sources_checked.get('MEXC', 0)}, OKX={sources_checked.get('OKX', 0)}", file=sys.stderr)
-    print(f"   > Detected {len(trades)} trades ({len([t for t in trades if t['type']=='buy'])} buys, {len([t for t in trades if t['type']=='sell'])} sells)", file=sys.stderr)
+    print(f"    > Detected {len(trades)} trades", file=sys.stderr)
     return trades
 
 def load_recent_trades():
