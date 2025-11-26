@@ -1926,28 +1926,26 @@ def main():
     print(f"   > ⏳ Waiting {BURST_WAIT_TIME}s to catch trades...", file=sys.stderr)
     time.sleep(BURST_WAIT_TIME)
     
-    # Snapshot 2
-    print("   > Snapshot 2/2...", file=sys.stderr)
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        f_binance = ex.submit(fetch_binance_both_sides)  # ← FIXED: Fetch buy + sell!
-        f_mexc = ex.submit(lambda: fetch_p2p_army_exchange("mexc", "SELL"))
-        f_okx = ex.submit(lambda: fetch_p2p_army_exchange("okx", "SELL"))
+   # Snapshot 2
+    print("    > Snapshot 2/2...", file=sys.stderr)
+    
+    # --- FIX: Reuse the EXACT same function as Snapshot 1 ---
+    # This automatically fetches Binance BUY + SELL, filters outliers, etc.
+    snapshot_2 = capture_market_snapshot()
+    
+    # Re-fetch official rates (for accuracy)
+    with ThreadPoolExecutor(max_workers=2) as ex:
         f_off = ex.submit(fetch_official_rate)
         f_peg = ex.submit(fetch_usdt_peg)
-        
-        bin_ads = f_binance.result() or []
-        mexc_ads = f_mexc.result() or []
-        okx_ads = f_okx.result() or []
         official = f_off.result() or 0.0
         peg = f_peg.result() or 1.0
-    
-    # Filter outliers
-    bin_ads = remove_outliers(bin_ads, peg)
-    mexc_ads = remove_outliers(mexc_ads, peg)
-    okx_ads = remove_outliers(okx_ads, peg)
-    
-    snapshot_2 = bin_ads + mexc_ads + okx_ads
-    grouped_ads = {"BINANCE": bin_ads, "MEXC": mexc_ads, "OKX": okx_ads}
+
+    # Re-create grouped_ads for the HTML report
+    grouped_ads = {
+        "BINANCE": [ad for ad in snapshot_2 if ad['source'] == 'BINANCE'],
+        "MEXC": [ad for ad in snapshot_2 if ad['source'] == 'MEXC'],
+        "OKX": [ad for ad in snapshot_2 if ad['source'] == 'OKX']
+    }
     
     if snapshot_2:
         # Detect trades
