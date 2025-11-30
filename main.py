@@ -1,21 +1,13 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v41.0 (AGGRESSOR LOGIC FIXED + Bybit!)
-- CRITICAL FIX: Correct aggressor tracking (GREEN = buying demand, RED = selling pressure)
-- NEW: Bybit support via p2p.army API!
-- NEW: Request tracking (like ethioblackmarket.com shows new ads/requests)
-- FIX: SELL_AD inventory drops → Aggressor BOUGHT (GREEN) ← Was backwards!
-- FIX: BUY_AD inventory drops → Aggressor SOLD (RED) ← Was backwards!
-- KEEP: p2p.army API ($200/month but worth it for aggregation!)
-- KEEP: 8 snapshots per run (v40.0 - 58% coverage)
-- KEEP: 15s intervals (v40.0)
-- KEEP: Delimiter fix (v38.5 - no crashes)
-- KEEP: Robust detection (v38.4)
-- EXCHANGES: Binance, MEXC, OKX, Bybit (all via p2p.army!)
-- TICKER: NYSE-style sliding rate ticker at top
-- CHARTS: Clean with latest label + volume bars
-- TRACKING: 1H/Today/Week/24h statistics + REQUESTS!
-- UI: Enhanced Robinhood-style interface
+🇪🇹 ETB Financial Terminal v41.8 (Bybit Duplicates + MEXC Pagination!)
+- FIXED: Bybit duplicate trades (deduplication in save_trades)
+- FIXED: REQUEST vs BOUGHT/SOLD clearly differentiated
+- FIXED: REQUESTs excluded from volume calculations
+- FIXED: MEXC pagination increased (3 → 10 pages for more ads)
+- NEW: Chart zoom controls (+ / − / reset)
+- KEEP: All v41.7 fixes (Binance pagination, no duplicate functions)
+- COST: Only $50/month for OKX!
 """
 
 import requests
@@ -228,6 +220,293 @@ def fetch_p2p_army_exchange(market, side="SELL"):
     
     return ads
 
+def fetch_bybit_direct(side="SELL"):
+    """Fetch Bybit P2P ads using direct free API (no p2p.army)"""
+    url = "https://api2.bybit.com/fiat/otc/item/online"
+    ads = []
+    
+    try:
+        # Bybit API params: side 0=sell, 1=buy
+        bybit_side = "0" if side == "SELL" else "1"
+        
+        params = {
+            "userId": "",
+            "tokenId": "USDT",
+            "currencyId": "ETB",
+            "payment": [],
+            "side": bybit_side,
+            "size": "100",
+            "page": "1",
+            "amount": ""
+        }
+        
+        r = requests.post(url, headers=HEADERS, json=params, timeout=10)
+        data = r.json()
+        
+        # Parse Bybit response
+        if data.get("ret_code") == 0 and "result" in data:
+            items = data["result"].get("items", [])
+            
+            for ad in items:
+                try:
+                    username = ad.get("nickName", ad.get("userId", "Bybit User"))
+                    price = float(ad.get("price", 0))
+                    vol = float(ad.get("lastQuantity", ad.get("quantity", 0)))
+                    
+                    if vol > 0 and price > 0:
+                        ads.append({
+                            'source': 'BYBIT',
+                            'ad_type': side,
+                            'advertiser': username,
+                            'price': price,
+                            'available': vol,
+                        })
+                except Exception as e:
+                    continue
+        
+        print(f"   BYBIT {side} (direct API): {len(ads)} ads", file=sys.stderr)
+    except Exception as e:
+        print(f"   BYBIT {side} (direct API) error: {e}", file=sys.stderr)
+    
+    return ads
+
+def fetch_binance_direct(side="SELL"):
+    """
+    Fetch Binance P2P ads using direct free API WITH PAGINATION!
+    Based on working v41.1 code that found 400+ ads
+    """
+    url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+    
+    all_ads = []
+    seen_ids = set()
+    page = 1
+    max_pages = 20  # Scan up to 20 pages (approx 400 ads!)
+    
+    while page <= max_pages:
+        payload = {
+            "asset": "USDT",
+            "fiat": "ETB",
+            "merchantCheck": False,
+            "page": page,
+            "rows": 20,  # Binance returns 20 per page
+            "tradeType": side
+        }
+        
+        try:
+            r = requests.post(url, headers=HEADERS, json=payload, timeout=10)
+            data = r.json()
+            
+            if data.get("code") == "000000" and data.get("data"):
+                items = data['data']
+                
+                # Stop if page is empty
+                if not items:
+                    break
+                
+                new_ads_count = 0
+                for item in items:
+                    try:
+                        # Extract data
+                        adv = item['adv']
+                        advertiser = item['advertiser']
+                        
+                        price = float(adv['price'])
+                        vol = float(adv['surplusAmount'])
+                        name = advertiser['nickName']
+                        ad_no = adv['advNo']  # Unique ad ID for deduplication
+                        
+                        if ad_no not in seen_ids:
+                            seen_ids.add(ad_no)
+                            all_ads.append({
+                                'source': 'BINANCE',
+                                'ad_type': side,
+                                'advertiser': name,
+                                'price': price,
+                                'available': vol,
+                            })
+                            new_ads_count += 1
+                    except:
+                        continue
+                
+                # Stop if no new ads found on this page
+                if new_ads_count == 0:
+                    break
+                
+                page += 1
+                time.sleep(0.3)  # Rate limiting between pages
+            else:
+                break
+        except Exception as e:
+            break
+    
+    print(f"   BINANCE {side} (direct API): {len(all_ads)} ads from {page-1} pages", file=sys.stderr)
+    return all_ads
+
+def fetch_mexc_rapidapi(side="SELL"):
+    """Fetch MEXC P2P ads using RapidAPI (WORKING v40.3 code!)"""
+    url = "https://mexc-p2p-api.p.rapidapi.com/mexc/p2p/search"  # Correct endpoint!
+    ads = []
+    
+    try:
+        headers = {
+            "X-RapidAPI-Key": "28e60e8b83msh2f62e830aa1f09ap18bad1jsna2ade74a847c",
+            "X-RapidAPI-Host": "mexc-p2p-api.p.rapidapi.com",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
+        }
+        
+        # CRITICAL: Logic swap for correct aggressor tracking
+        # User wants to BUY USDT → Look at SELL ads (makers selling USDT)
+        # User wants to SELL USDT → Look at BUY ads (makers buying USDT)
+        if side == "BUY":
+            api_side = "SELL"
+        else:
+            api_side = "BUY"
+        
+        seen_ids = set()
+        
+        # Dual Strategy: Try both text params AND ID params to catch all ads
+        strategies = [
+            {"name": "Text", "params": {"currency": "ETB", "coin": "USDT"}},
+            {"name": "ID",   "params": {"currencyId": "58", "coinId": "1"}}
+        ]
+        
+        for strategy in strategies:
+            page = 1
+            max_pages = 10  # Increased from 3 to 10 to get more MEXC ads!
+            
+            while page <= max_pages:
+                params = {
+                    "tradeType": api_side,
+                    "page": str(page),
+                    "blockTrade": "false"
+                }
+                params.update(strategy["params"])
+                
+                try:
+                    # CRITICAL: Use GET, not POST!
+                    r = requests.get(url, headers=headers, params=params, timeout=10)
+                    data = r.json()
+                    items = data.get("data", [])
+                    
+                    if not items:
+                        break  # No more pages
+                    
+                    new_count = 0
+                    for item in items:
+                        try:
+                            price = item.get("price")
+                            vol = item.get("availableQuantity") or item.get("surplus_amount")
+                            if vol:
+                                vol = float(vol)
+                            else:
+                                vol = 0.0
+                            
+                            # Extract merchant name
+                            name = "MEXC User"
+                            merchant = item.get("merchant")
+                            if merchant and isinstance(merchant, dict):
+                                name = merchant.get("nickName") or merchant.get("name") or name
+                            
+                            if price:
+                                price = float(price)
+                                unique_id = f"{name}-{price}-{vol}"
+                                
+                                if unique_id not in seen_ids and vol > 0:
+                                    seen_ids.add(unique_id)
+                                    ads.append({
+                                        'source': 'MEXC',
+                                        'ad_type': side,  # User's perspective!
+                                        'advertiser': name,
+                                        'price': price,
+                                        'available': vol,
+                                    })
+                                    new_count += 1
+                        except:
+                            continue
+                    
+                    if new_count == 0:
+                        break  # No new ads found
+                    
+                    page += 1
+                    time.sleep(0.3)  # Rate limiting
+                    
+                except:
+                    break
+        
+        print(f"   MEXC {side} (RapidAPI): {len(ads)} ads", file=sys.stderr)
+    except Exception as e:
+        print(f"   MEXC {side} (RapidAPI) error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+    
+    return ads
+
+def fetch_binance_both_sides():
+    """Fetch BOTH buy and sell ads from Binance using direct API with deduplication"""
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f_sell = ex.submit(lambda: fetch_binance_direct("SELL"))
+        f_buy = ex.submit(lambda: fetch_binance_direct("BUY"))
+        
+        sell_ads = f_sell.result() or []
+        buy_ads = f_buy.result() or []
+        
+        # Deduplicate across both sides using advertiser + price
+        all_ads = sell_ads + buy_ads
+        seen = set()
+        deduped = []
+        
+        for ad in all_ads:
+            key = f"{ad['advertiser']}_{ad['price']}_{ad.get('ad_type', 'SELL')}"
+            if key not in seen:
+                seen.add(key)
+                deduped.append(ad)
+        
+        return deduped
+
+def fetch_mexc_both_sides():
+    """Fetch BOTH buy and sell ads from MEXC using RapidAPI with deduplication"""
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f_sell = ex.submit(lambda: fetch_mexc_rapidapi("SELL"))
+        f_buy = ex.submit(lambda: fetch_mexc_rapidapi("BUY"))
+        
+        sell_ads = f_sell.result() or []
+        buy_ads = f_buy.result() or []
+        
+        # Deduplicate across both sides using advertiser + price
+        all_ads = sell_ads + buy_ads
+        seen = set()
+        deduped = []
+        
+        for ad in all_ads:
+            key = f"{ad['advertiser']}_{ad['price']}_{ad.get('ad_type', 'SELL')}"
+            if key not in seen:
+                seen.add(key)
+                deduped.append(ad)
+        
+        return deduped
+
+def fetch_bybit_both_sides():
+    """Fetch BOTH buy and sell ads from Bybit using direct API with deduplication"""
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f_sell = ex.submit(lambda: fetch_bybit_direct("SELL"))
+        f_buy = ex.submit(lambda: fetch_bybit_direct("BUY"))
+        
+        sell_ads = f_sell.result() or []
+        buy_ads = f_buy.result() or []
+        
+        # Deduplicate across both sides using advertiser + price
+        all_ads = sell_ads + buy_ads
+        seen = set()
+        deduped = []
+        
+        for ad in all_ads:
+            key = f"{ad['advertiser']}_{ad['price']}_{ad.get('ad_type', 'SELL')}"
+            if key not in seen:
+                seen.add(key)
+                deduped.append(ad)
+        
+        return deduped
+
 def fetch_exchange_both_sides(exchange_name):
     """Fetch BOTH buy and sell ads for any exchange via p2p.army"""
     with ThreadPoolExecutor(max_workers=2) as ex:
@@ -241,28 +520,24 @@ def fetch_exchange_both_sides(exchange_name):
         print(f"   {exchange_name.upper()} Total: {len(all_ads)} ads ({len(sell_ads)} sells, {len(buy_ads)} buys)", file=sys.stderr)
         return all_ads
 
-def fetch_binance_both_sides():
-    """Fetch BOTH buy and sell ads from Binance via p2p.army"""
-    return fetch_exchange_both_sides("binance")
-
 # --- MARKET SNAPSHOT ---
 def capture_market_snapshot():
-    """Capture market snapshot from all exchanges (Binance, MEXC, OKX, Bybit)"""
+    """Capture market snapshot: Binance (direct), MEXC (RapidAPI), OKX (p2p.army), Bybit (direct)"""
     with ThreadPoolExecutor(max_workers=10) as ex:
-        f_binance = ex.submit(fetch_exchange_both_sides, "binance")
-        f_mexc = ex.submit(fetch_exchange_both_sides, "mexc")
-        f_okx = ex.submit(fetch_exchange_both_sides, "okx")
-        f_bybit = ex.submit(fetch_exchange_both_sides, "bybit")  # NEW: Bybit support!
+        f_binance = ex.submit(fetch_binance_both_sides)  # Direct API (FREE!)
+        f_mexc = ex.submit(fetch_mexc_both_sides)  # RapidAPI  
+        f_okx = ex.submit(fetch_exchange_both_sides, "okx")  # Only OKX uses p2p.army now
+        f_bybit = ex.submit(fetch_bybit_both_sides)  # Direct API (FREE!)
         f_peg = ex.submit(fetch_usdt_peg)
         
         binance_data = f_binance.result() or []
         mexc_data = f_mexc.result() or []
         okx_data = f_okx.result() or []
-        bybit_data = f_bybit.result() or []  # NEW!
+        bybit_data = f_bybit.result() or []
         peg = f_peg.result() or 1.0
         
         total_before = len(binance_data) + len(mexc_data) + len(okx_data) + len(bybit_data)
-        print(f"   📊 Collected {total_before} ads total (Binance, MEXC, OKX, Bybit)", file=sys.stderr)
+        print(f"   📊 Collected {total_before} ads total (Binance direct, MEXC RapidAPI, OKX p2p.army, Bybit direct)", file=sys.stderr)
         
         # Remove lowest 10% outliers
         binance_data = remove_outliers(binance_data, peg)
@@ -502,8 +777,30 @@ def load_recent_trades():
         return []
 
 def save_trades(new_trades):
+    """Save trades with DEDUPLICATION to prevent duplicates like Bybit issue"""
     recent = load_recent_trades()
-    all_trades = recent + new_trades
+    
+    # Create set of existing trade keys for deduplication
+    existing_keys = set()
+    for t in recent:
+        # Key: source + user + price + rounded timestamp (within 60 seconds)
+        ts_bucket = int(t.get("timestamp", 0) / 60)  # Group by minute
+        key = f"{t.get('source', '')}_{t.get('user', '')}_{t.get('price', 0):.2f}_{ts_bucket}_{t.get('type', '')}"
+        existing_keys.add(key)
+    
+    # Filter out duplicate new trades
+    unique_new = []
+    for t in new_trades:
+        ts_bucket = int(t.get("timestamp", 0) / 60)
+        key = f"{t.get('source', '')}_{t.get('user', '')}_{t.get('price', 0):.2f}_{ts_bucket}_{t.get('type', '')}"
+        if key not in existing_keys:
+            existing_keys.add(key)
+            unique_new.append(t)
+    
+    if len(new_trades) != len(unique_new):
+        print(f"   > Deduplication: {len(new_trades)} → {len(unique_new)} trades (removed {len(new_trades) - len(unique_new)} duplicates)", file=sys.stderr)
+    
+    all_trades = recent + unique_new
     
     cutoff = time.time() - (TRADE_RETENTION_MINUTES * 60)
     filtered = [t for t in all_trades if t.get("timestamp", 0) > cutoff]
@@ -512,6 +809,7 @@ def save_trades(new_trades):
         json.dump(filtered, f)
     
     print(f"   > Saved {len(filtered)} trades to history (last 24h)", file=sys.stderr)
+
 
 # --- ANALYTICS ---
 def analyze(prices, peg):
@@ -754,22 +1052,21 @@ def calculate_trade_stats(trades):
     return stats
 
 def calculate_volume_by_exchange(trades):
-    """Calculate buy/sell volume by exchange for last 24h"""
+    """Calculate buy/sell volume by exchange for last 24h - EXCLUDES REQUESTS"""
     volumes = {}
     
     # Debug: print sample trades
     print(f"\n🔍 DEBUG: calculate_volume_by_exchange received {len(trades)} trades", file=sys.stderr)
-    if len(trades) > 0:
-        print(f"   Sample trade: {trades[0]}", file=sys.stderr)
     
-    for trade in trades:
+    # Count requests vs actual trades
+    actual_trades = [t for t in trades if t.get('type') in ['buy', 'sell']]
+    requests = [t for t in trades if t.get('type') == 'request']
+    print(f"   Actual trades: {len(actual_trades)}, Requests (excluded): {len(requests)}", file=sys.stderr)
+    
+    for trade in actual_trades:  # Only process actual trades, NOT requests!
         source = trade.get('source', 'Unknown')
         vol = trade.get('vol_usd', 0)
         trade_type = trade.get('type', '')
-        
-        # Debug: print first few trades
-        if len(volumes) < 3:
-            print(f"   Processing: source={source}, type={trade_type}, vol={vol}", file=sys.stderr)
         
         if source not in volumes:
             volumes[source] = {'buy': 0, 'sell': 0, 'total': 0}
@@ -900,7 +1197,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     else:
         max_volume = max([v['total'] for v in volume_by_exchange.values()])
         
-        for source in ['BINANCE', 'MEXC', 'OKX']:
+        for source in ['BINANCE', 'MEXC', 'OKX', 'BYBIT']:  # Added BYBIT!
             # Get data or default to 0
             data = volume_by_exchange.get(source, {'buy': 0, 'sell': 0, 'total': 0})
             buy_pct = (data['buy'] / max_volume * 100) if max_volume > 0 else 0
@@ -913,8 +1210,14 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 sell_pct = 2
             
             # Source emoji and color
-            emoji = '🟡' if source == 'BINANCE' else ('🔵' if source == 'MEXC' else '🟣')
-            color = '#F3BA2F' if source == 'BINANCE' else ('#2E55E6' if source == 'MEXC' else '#A855F7')
+            if source == 'BINANCE':
+                emoji, color = '🟡', '#F3BA2F'
+            elif source == 'MEXC':
+                emoji, color = '🔵', '#2E55E6'
+            elif source == 'OKX':
+                emoji, color = '🟣', '#A855F7'
+            else:  # BYBIT
+                emoji, color = '🟠', '#FF6B00'
             
             volume_chart_html += f"""
             <div class="volume-row">
@@ -968,7 +1271,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market v37 - Complete Edition</title>
+        <title>ETB Market v41.8 - No Duplicates + Zoom</title>
         <style>
             * {{ margin: 0; padding: 0; box-sizing: border-box; }}
             
@@ -1204,10 +1507,46 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 position: relative;
             }}
             
+            .chart-zoom-controls {{
+                position: absolute;
+                top: 30px;
+                right: 30px;
+                display: flex;
+                gap: 8px;
+                z-index: 10;
+            }}
+            
+            .zoom-btn {{
+                width: 36px;
+                height: 36px;
+                border-radius: 8px;
+                border: 1px solid var(--border);
+                background: var(--card);
+                color: var(--text);
+                cursor: pointer;
+                font-size: 18px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s;
+            }}
+            
+            .zoom-btn:hover {{
+                background: var(--border);
+            }}
+            
+            .chart-zoom-container {{
+                overflow: auto;
+                max-height: 500px;
+                border-radius: 12px;
+            }}
+            
             .chart-card img {{
                 width: 100%;
+                min-width: 100%;
                 border-radius: 12px;
                 display: block;
+                transition: transform 0.3s ease;
             }}
             
             .table-card {{
@@ -1280,6 +1619,18 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 font-size: 18px;
                 font-weight: 700;
                 margin-bottom: 15px;
+            }}
+            
+            /* Tooltip styles */
+            .info-tooltip:hover .tooltip-content {{
+                visibility: visible !important;
+                opacity: 1;
+                animation: fadeIn 0.2s ease-in;
+            }}
+            
+            @keyframes fadeIn {{
+                from {{ opacity: 0; transform: translateX(-50%) translateY(-5px); }}
+                to {{ opacity: 1; transform: translateX(-50%) translateY(0); }}
             }}
             
             .feed-container {{
@@ -1640,7 +1991,14 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                     </div>
                     
                     <div class="chart-card">
-                        <img src="{GRAPH_FILENAME}?v={cache_buster}" id="chartImg" alt="Market Chart" title="Price Distribution and 24h Trend">
+                        <div class="chart-zoom-controls">
+                            <button class="zoom-btn" onclick="zoomChart(-0.2)" title="Zoom Out">−</button>
+                            <button class="zoom-btn" onclick="zoomChart(0)" title="Reset Zoom">⟲</button>
+                            <button class="zoom-btn" onclick="zoomChart(0.2)" title="Zoom In">+</button>
+                        </div>
+                        <div class="chart-zoom-container" id="chartContainer">
+                            <img src="{GRAPH_FILENAME}?v={cache_buster}" id="chartImg" alt="Market Chart" title="Price Distribution and 24h Trend">
+                        </div>
                     </div>
                     
                     <div class="table-card">
@@ -1675,13 +2033,14 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                     </div>
                 </div>
                 
+                
                 <div class="feed-panel">
                     <div class="feed-header">
                         <div class="feed-title">Market Activity</div>
                         <div style="color:var(--text-secondary);font-size:13px;margin-bottom:10px" id="feedStats">
                             <span style="color:var(--green)">🟢 {buys_count} Buys</span> • <span style="color:var(--red)">🔴 {sells_count} Sells</span>
                         </div>
-                        <div style="display:flex;gap:8px;margin-top:10px;">
+                        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
                             <button class="source-filter-btn active" data-source="all" onclick="filterBySource('all')" style="background:var(--accent);color:white;border:none;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">
                                 All
                             </button>
@@ -1693,6 +2052,9 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                             </button>
                             <button class="source-filter-btn" data-source="OKX" onclick="filterBySource('OKX')" style="background:transparent;color:var(--text-secondary);border:1px solid var(--border);padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">
                                 🟣 OKX
+                            </button>
+                            <button class="source-filter-btn" data-source="BYBIT" onclick="filterBySource('BYBIT')" style="background:transparent;color:var(--text-secondary);border:1px solid var(--border);padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">
+                                🟠 Bybit
                             </button>
                         </div>
                     </div>
@@ -1778,9 +2140,62 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 </div>
             </div>
             
+            <!-- Explanation Section at Bottom -->
+            <div style="background:var(--card);padding:30px;border-radius:12px;margin-top:30px;border:1px solid var(--border);">
+                <div style="font-size:20px;font-weight:700;margin-bottom:20px;color:var(--text);text-align:center;">📊 Understanding Market Colors & Terms</div>
+                
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+                    <div style="background:linear-gradient(135deg,var(--green)11,var(--green)05);padding:20px;border-radius:12px;border:2px solid var(--green)44;">
+                        <div style="font-weight:700;color:var(--green);font-size:18px;margin-bottom:10px;">🟢 GREEN = BUYING (Demand)</div>
+                        <div style="font-size:14px;color:var(--text);line-height:1.6;margin-bottom:10px;">
+                            When someone <b>BUYS USDT</b> or posts a <b>BUY REQUEST</b>.
+                        </div>
+                        <div style="font-size:13px;color:var(--text-secondary);line-height:1.5;">
+                            Indicates demand for USDT, potential capital flight from ETB to crypto assets.
+                        </div>
+                    </div>
+                    
+                    <div style="background:linear-gradient(135deg,var(--red)11,var(--red)05);padding:20px;border-radius:12px;border:2px solid var(--red)44;">
+                        <div style="font-weight:700;color:var(--red);font-size:18px;margin-bottom:10px;">🔴 RED = SELLING (Supply)</div>
+                        <div style="font-size:14px;color:var(--text);line-height:1.6;margin-bottom:10px;">
+                            When someone <b>SELLS USDT</b> or posts a <b>SELL REQUEST</b>.
+                        </div>
+                        <div style="font-size:13px;color:var(--text-secondary);line-height:1.5;">
+                            Indicates supply of USDT, capital returning from crypto to ETB.
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="background:var(--bg);padding:20px;border-radius:10px;border:1px solid var(--border);">
+                    <div style="font-weight:700;font-size:16px;margin-bottom:15px;color:var(--text);">Key Trading Terms:</div>
+                    
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
+                        <div>
+                            <div style="font-weight:600;color:var(--accent);margin-bottom:5px;">Aggressor (Taker)</div>
+                            <div style="font-size:13px;color:var(--text-secondary);line-height:1.5;">
+                                The person who <b style="color:var(--text)">takes liquidity</b> by filling someone else's ad. 
+                                Their action (buy or sell) determines the color shown in the feed.
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <div style="font-weight:600;color:var(--accent);margin-bottom:5px;">Maker</div>
+                            <div style="font-size:13px;color:var(--text-secondary);line-height:1.5;">
+                                The person who <b style="color:var(--text)">provides liquidity</b> by posting an ad and waiting for it to be filled. 
+                                We track aggressor actions, not maker inventory changes.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top:15px;padding-top:15px;border-top:1px solid var(--border);font-size:12px;color:var(--text-secondary);text-align:center;">
+                        This approach matches standard exchange behavior and accurately reflects market sentiment.
+                    </div>
+                </div>
+            </div>
+            
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v41.0 AGGRESSOR FIXED! • GREEN=Buy Demand • RED=Sell • +Bybit • +Requests • Correct colors! 🎯✅
+                v41.8 No Duplicates! • Bybit fixed • MEXC 10 pages • Chart zoom • REQUESTs excluded! 💰✅
             </footer>
         </div>
         
@@ -1790,6 +2205,21 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             const imgLight = "{GRAPH_LIGHT_FILENAME}?v={cache_buster}";
             let currentPeriod = 'live';
             let currentSource = 'all';
+            let chartZoom = 1;
+            
+            // Chart zoom function
+            function zoomChart(delta) {{
+                const img = document.getElementById('chartImg');
+                if (delta === 0) {{
+                    // Reset
+                    chartZoom = 1;
+                }} else {{
+                    chartZoom = Math.max(0.5, Math.min(3, chartZoom + delta));
+                }}
+                img.style.transform = `scale(${{chartZoom}})`;
+                img.style.transformOrigin = 'top left';
+                img.style.minWidth = `${{100 / chartZoom}}%`;
+            }}
             
             function toggleTheme() {{
                 const html = document.documentElement;
@@ -1854,7 +2284,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 
                 let filtered = allTrades.filter(t => {{
                     return t.timestamp > cutoff && 
-                           (t.type === 'buy' || t.type === 'sell');
+                           (t.type === 'buy' || t.type === 'sell' || t.type === 'request');
                 }});
                 
                 if (currentSource !== 'all') {{
@@ -1886,10 +2316,23 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                     const ageMin = Math.floor((Date.now() / 1000 - trade.timestamp) / 60);
                     const age = ageMin < 60 ? ageMin + 'm ago' : Math.floor(ageMin/60) + 'h ago';
                     
-                    const isBuy = trade.type === 'buy';
-                    const icon = isBuy ? '↗' : '↘';
-                    const action = isBuy ? 'BOUGHT' : 'SOLD';
-                    const color = isBuy ? 'var(--green)' : 'var(--red)';
+                    // Handle both regular trades and requests
+                    let icon, action, color;
+                    
+                    if (trade.type === 'request') {{
+                        // REQUEST: Show as "posted" instead of BOUGHT/SOLD
+                        const requestType = trade.request_type || 'REQUEST';
+                        const isBuyRequest = requestType.includes('BUY');
+                        icon = isBuyRequest ? '➕' : '➖';
+                        action = requestType;  // "BUY REQUEST" or "SELL REQUEST"
+                        color = isBuyRequest ? 'var(--green)' : 'var(--red)';
+                    }} else {{
+                        // Regular trade
+                        const isBuy = trade.type === 'buy';
+                        icon = isBuy ? '↗' : '↘';
+                        action = isBuy ? 'BOUGHT' : 'SOLD';
+                        color = isBuy ? 'var(--green)' : 'var(--red)';
+                    }}
                     
                     let sourceColor, sourceEmoji;
                     if (trade.source === 'BINANCE') {{
@@ -1898,6 +2341,9 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                     }} else if (trade.source === 'MEXC') {{
                         sourceColor = '#2E55E6';  // Blue
                         sourceEmoji = '🔵';
+                    }} else if (trade.source === 'BYBIT') {{
+                        sourceColor = '#FF6B00';  // Orange
+                        sourceEmoji = '🟠';
                     }} else {{
                         sourceColor = '#A855F7';  // Purple (OKX)
                         sourceEmoji = '🟣';
@@ -1938,7 +2384,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         f.write(html)
 
 def generate_feed_html(trades, peg):
-    """Server-side initial feed rendering"""
+    """Server-side initial feed rendering - handles trades AND requests"""
     if not trades:
         return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">Waiting for market activity...</div>'
     
@@ -1946,14 +2392,62 @@ def generate_feed_html(trades, peg):
     valid_count = 0
     buy_count = 0
     sell_count = 0
+    request_count = 0
     
     for trade in sorted(trades, key=lambda x: x.get('timestamp', 0), reverse=True)[:50]:
-        # Skip trades without valid type
-        if trade.get('type') not in ['buy', 'sell']:
+        trade_type = trade.get('type')
+        
+        # Handle REQUESTS (new ads posted)
+        if trade_type == 'request':
+            request_count += 1
+            request_type = trade.get('request_type', 'REQUEST')
+            is_buy_request = 'BUY' in request_type
+            
+            ts = datetime.datetime.fromtimestamp(trade.get("timestamp", time.time()))
+            time_str = ts.strftime("%I:%M %p")
+            age_seconds = time.time() - trade.get("timestamp", time.time())
+            age_str = f"{int(age_seconds/60)}min ago" if age_seconds >= 60 else f"{int(age_seconds)}s ago"
+            
+            icon = "📝"  # Request icon
+            action_color = "var(--green)" if is_buy_request else "var(--red)"
+            
+            source = trade.get('source', 'Unknown')
+            if source == 'BINANCE':
+                emoji, color = '🟡', '#F3BA2F'
+            elif source == 'MEXC':
+                emoji, color = '🔵', '#2E55E6'
+            elif source == 'BYBIT':
+                emoji, color = '🟠', '#FF9500'  # Orange for Bybit
+            else:
+                emoji, color = '🟣', '#A855F7'  # Purple (OKX)
+            
+            html += f"""
+        <div class="feed-item request-item" data-source="{source}">
+            <div class="feed-icon" style="background:linear-gradient(135deg,{action_color}22,{action_color}11)">
+                {icon}
+            </div>
+            <div class="feed-content">
+                <div class="feed-meta">
+                    <span>{time_str}</span>
+                    <span>{age_str}</span>
+                </div>
+                <div class="feed-text">
+                    {emoji} <span class="feed-user">{trade.get('user', 'Unknown')[:15]}</span>
+                    <span style="color:{color};font-weight:600">({source})</span>
+                    <b style="color:{action_color}">{request_type}</b>
+                    <span class="feed-amount">{trade.get('vol_usd', 0):,.0f} USDT</span>
+                    @ <span class="feed-price">{trade.get('price', 0):.2f} ETB</span>
+                </div>
+            </div>
+        </div>
+        """
+            continue
+        
+        # Handle TRADES (buy/sell)
+        if trade_type not in ['buy', 'sell']:
             continue
         
         valid_count += 1
-        trade_type = trade['type']
         is_buy = trade_type == 'buy'
         
         if is_buy:
@@ -1976,11 +2470,13 @@ def generate_feed_html(trades, peg):
             emoji, color = '🟡', '#F3BA2F'  # Yellow
         elif source == 'MEXC':
             emoji, color = '🔵', '#2E55E6'  # Blue
+        elif source == 'BYBIT':
+            emoji, color = '🟠', '#FF9500'  # Orange
         else:
             emoji, color = '🟣', '#A855F7'  # Purple (OKX)
         
         html += f"""
-        <div class="feed-item">
+        <div class="feed-item" data-source="{source}">
             <div class="feed-icon {icon_class}">
                 {icon}
             </div>
@@ -2000,16 +2496,22 @@ def generate_feed_html(trades, peg):
         </div>
         """
     
-    print(f"   > Rendered {valid_count} feed items ({buy_count} buys, {sell_count} sells)", file=sys.stderr)
+    if not html:
+        return '<div style="padding:20px;text-align:center;color:var(--text-secondary)">No recent activity</div>'
     
+    print(f"   > Rendered {valid_count} trades + {request_count} requests", file=sys.stderr)
     return html
+
 
 # --- MAIN ---
 def main():
-    print("🔍 Running v41.0 (AGGRESSOR LOGIC FIXED + Bybit + Requests!)...", file=sys.stderr)
+    print("🔍 Running v41.8 (Deduplication + MEXC Pagination!)...", file=sys.stderr)
     print("   📊 Strategy: 8 snapshots × 15s intervals = 105s coverage (58%!)", file=sys.stderr)
-    print("   ✅ Fixed: GREEN = buying demand, RED = selling pressure", file=sys.stderr)
-    print("   ✅ Added: Bybit + Request tracking!", file=sys.stderr)
+    print("   🚨 FIXED: Bybit duplicate trades (deduplication)", file=sys.stderr)
+    print("   🚨 FIXED: REQUESTs excluded from volume", file=sys.stderr)
+    print("   🚨 FIXED: MEXC pagination 3→10 pages", file=sys.stderr)
+    print("   ✅ NEW: Chart zoom controls", file=sys.stderr)
+    print("   💰 COST: Only $50/month!", file=sys.stderr)
     
     # Configuration - MAXIMUM snapshots within GitHub Actions time budget
     NUM_SNAPSHOTS = 8  # Increased from 4 to 8!
@@ -2045,26 +2547,43 @@ def main():
         save_market_state(current_snapshot)
         prev_snapshot = current_snapshot
     
-    # Final snapshot for website display
+    # Final snapshot for website display (fetch BOTH sides!)
     print("   > Final snapshot for display...", file=sys.stderr)
     with ThreadPoolExecutor(max_workers=10) as ex:
-        f_binance = ex.submit(fetch_binance_both_sides)
-        f_mexc = ex.submit(lambda: fetch_p2p_army_exchange("mexc", "SELL"))
-        f_okx = ex.submit(lambda: fetch_p2p_army_exchange("okx", "SELL"))
+        f_binance = ex.submit(fetch_binance_both_sides)  # Both buy and sell!
+        f_mexc = ex.submit(fetch_mexc_both_sides)  # Both buy and sell!
+        f_okx = ex.submit(fetch_exchange_both_sides, "okx")  # Both buy and sell!
+        f_bybit = ex.submit(fetch_bybit_both_sides)  # Both buy and sell!
         f_off = ex.submit(fetch_official_rate)
         
         bin_ads = f_binance.result() or []
         mexc_ads = f_mexc.result() or []
         okx_ads = f_okx.result() or []
+        bybit_ads = f_bybit.result() or []
         official = f_off.result() or 0.0
+    
+    # Debug: Log ad counts BEFORE filtering
+    print(f"   🔍 Final snapshot (before filtering):", file=sys.stderr)
+    print(f"      BINANCE: {len(bin_ads)} ads", file=sys.stderr)
+    print(f"      MEXC: {len(mexc_ads)} ads", file=sys.stderr)
+    print(f"      OKX: {len(okx_ads)} ads", file=sys.stderr)
+    print(f"      BYBIT: {len(bybit_ads)} ads", file=sys.stderr)
     
     # Filter outliers
     bin_ads = remove_outliers(bin_ads, peg)
     mexc_ads = remove_outliers(mexc_ads, peg)
     okx_ads = remove_outliers(okx_ads, peg)
+    bybit_ads = remove_outliers(bybit_ads, peg)
     
-    final_snapshot = bin_ads + mexc_ads + okx_ads
-    grouped_ads = {"BINANCE": bin_ads, "MEXC": mexc_ads, "OKX": okx_ads}
+    # Debug: Log ad counts AFTER filtering
+    print(f"   🔍 Final snapshot (after filtering):", file=sys.stderr)
+    print(f"      BINANCE: {len(bin_ads)} ads", file=sys.stderr)
+    print(f"      MEXC: {len(mexc_ads)} ads", file=sys.stderr)
+    print(f"      OKX: {len(okx_ads)} ads", file=sys.stderr)
+    print(f"      BYBIT: {len(bybit_ads)} ads", file=sys.stderr)
+    
+    final_snapshot = bin_ads + mexc_ads + okx_ads + bybit_ads
+    grouped_ads = {"BINANCE": bin_ads, "MEXC": mexc_ads, "OKX": okx_ads, "BYBIT": bybit_ads}
     
     # Save all detected trades
     if all_trades:
