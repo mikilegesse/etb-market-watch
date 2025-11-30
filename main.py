@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v42.0 (Beautiful Scatter Charts + Market Insight!)
-- NEW: Scatter plot distribution (like before, but prettier)
-- NEW: 24h trend with Y-axis gaps of 10, spread line, data labels
-- NEW: Live Market Insight - Supply & Demand by exchange
-- IMPROVED: Tooltips on all charts
-- KEEP: All v41.9 fixes
+🇪🇹 ETB Financial Terminal v42.1 (Fixed Charts + 24h Volume!)
+- FIXED: Scatter chart now shows MEXC (forced order: BINANCE, MEXC, OKX, BYBIT)
+- FIXED: ONE median line across all exchanges (green horizontal)
+- FIXED: Market Insight now shows 24h TRADE VOLUME (not available)
+- IMPROVED: Stacked bars for Buy/Sell volume by exchange
+- KEEP: All v42.0 features
 - COST: Only $50/month for OKX!
 """
 
@@ -1146,12 +1146,17 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     buys_count = len([t for t in recent_trades if t.get('type') == 'buy'])
     sells_count = len([t for t in recent_trades if t.get('type') == 'sell'])
     
-    # Generate Plotly chart data
-    chart_data = {}
+    # Generate Plotly chart data - ensure all 4 exchanges are represented
+    chart_data = {'BINANCE': [], 'MEXC': [], 'OKX': [], 'BYBIT': []}
     for source, ads in grouped_ads.items():
         prices = [a["price"] / peg for a in ads if a.get("price", 0) > 0]  # Normalized prices
-        if prices:
+        if prices and source in chart_data:
             chart_data[source] = prices
+    
+    # Debug: show what we have for each exchange
+    for src in ['BINANCE', 'MEXC', 'OKX', 'BYBIT']:
+        print(f"   Chart data {src}: {len(chart_data.get(src, []))} prices", file=sys.stderr)
+    
     chart_data_json = json.dumps(chart_data)
     
     # Generate history data for trend chart
@@ -1162,26 +1167,11 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     }
     history_data_json = json.dumps(history_data)
     
-    # Calculate market supply (SELL ads) and demand (BUY ads) by exchange
-    market_supply = {}  # SELL ads = merchants selling USDT (supply)
-    market_demand = {}  # BUY ads = merchants buying USDT (demand from users selling)
+    # Calculate 24h trade volume by exchange (using actual trades, not available ads)
+    volume_by_exchange = calculate_volume_by_exchange(recent_trades)
     
-    for source, ads in grouped_ads.items():
-        supply_vol = sum(a.get('available', 0) for a in ads if a.get('ad_type') == 'SELL')
-        demand_vol = sum(a.get('available', 0) for a in ads if a.get('ad_type') == 'BUY')
-        
-        # Get weighted average prices
-        sell_ads = [a for a in ads if a.get('ad_type') == 'SELL']
-        buy_ads = [a for a in ads if a.get('ad_type') == 'BUY']
-        
-        supply_price = sum(a.get('price', 0) for a in sell_ads) / len(sell_ads) if sell_ads else 0
-        demand_price = sum(a.get('price', 0) for a in buy_ads) / len(buy_ads) if buy_ads else 0
-        
-        market_supply[source] = {'volume': supply_vol, 'price': supply_price / peg if peg else supply_price}
-        market_demand[source] = {'volume': demand_vol, 'price': demand_price / peg if peg else demand_price}
-    
-    market_supply_json = json.dumps(market_supply)
-    market_demand_json = json.dumps(market_demand)
+    # Convert to JSON for JavaScript (24h traded volume)
+    trade_volume_json = json.dumps(volume_by_exchange)
     
     # Generate feed HTML (server-side rendering of initial state)
     feed_html = generate_feed_html(recent_trades, peg)
@@ -1211,10 +1201,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     print(f"   Buy volume: ${overall_buy_volume:,.0f}", file=sys.stderr)
     print(f"   Sell volume: ${overall_sell_volume:,.0f}", file=sys.stderr)
     
-    # Calculate volume by exchange
-    volume_by_exchange = calculate_volume_by_exchange(recent_trades)
-    
-    # Debug logging
+    # Debug logging for volume by exchange (already calculated above)
     print(f"\n📊 Volume by Exchange:")
     for source, data in volume_by_exchange.items():
         print(f"  {source}: Buy ${data['buy']:,.0f}, Sell ${data['sell']:,.0f}, Total ${data['total']:,.0f}")
@@ -1307,7 +1294,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market v42.0 - Scatter Charts + Market Insight</title>
+        <title>ETB Market v42.1 - Fixed Charts + 24h Volume</title>
         <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
         <style>
             * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -2152,27 +2139,31 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 </div>
             </div>
             
-            <!-- Live Market Insight Section -->
+            <!-- Live Market Insight Section - 24h Trade Volume -->
             <div style="background:var(--card);padding:30px;border-radius:12px;margin-top:30px;border:1px solid var(--border);">
                 <div style="font-size:20px;font-weight:700;margin-bottom:20px;color:var(--text);display:flex;align-items:center;gap:10px;">
-                    <span style="font-size:24px;">📈</span> Live Market Insight
+                    <span style="font-size:24px;">📈</span> 24h Trade Volume by Exchange
                 </div>
                 
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:30px;">
-                    <!-- Total Market Supply (SELL ads - merchants selling USDT) -->
-                    <div>
-                        <div style="font-size:18px;font-weight:700;margin-bottom:15px;color:var(--green);">Total Market Supply</div>
-                        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:15px;">USDT available for purchase (SELL ads)</div>
-                        <div id="supplyBars" style="display:flex;flex-direction:column;gap:12px;"></div>
-                        <div id="totalSupply" style="margin-top:15px;padding-top:15px;border-top:1px solid var(--border);font-size:16px;font-weight:600;color:var(--text);"></div>
+                <!-- Stacked Bar Chart for 24h Volume -->
+                <div id="volumeStackedChart" style="display:flex;flex-direction:column;gap:16px;"></div>
+                
+                <!-- Totals -->
+                <div style="display:flex;justify-content:space-between;margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
+                    <div id="totalBuyVolume" style="font-size:16px;font-weight:600;color:var(--green);"></div>
+                    <div id="totalSellVolume" style="font-size:16px;font-weight:600;color:var(--red);"></div>
+                    <div id="grandTotalVolume" style="font-size:16px;font-weight:700;color:var(--text);"></div>
+                </div>
+                
+                <!-- Legend -->
+                <div style="display:flex;gap:20px;margin-top:15px;justify-content:center;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <div style="width:16px;height:16px;background:var(--green);border-radius:4px;"></div>
+                        <span style="font-size:13px;color:var(--text-secondary);">Buy Volume</span>
                     </div>
-                    
-                    <!-- Total Market Demand (BUY ads - merchants buying USDT) -->
-                    <div>
-                        <div style="font-size:18px;font-weight:700;margin-bottom:15px;color:var(--red);">Total Market Demand</div>
-                        <div style="font-size:13px;color:var(--text-secondary);margin-bottom:15px;">USDT being requested (BUY ads)</div>
-                        <div id="demandBars" style="display:flex;flex-direction:column;gap:12px;"></div>
-                        <div id="totalDemand" style="margin-top:15px;padding-top:15px;border-top:1px solid var(--border);font-size:16px;font-weight:600;color:var(--text);"></div>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <div style="width:16px;height:16px;background:var(--red);border-radius:4px;"></div>
+                        <span style="font-size:13px;color:var(--text-secondary);">Sell Volume</span>
                     </div>
                 </div>
             </div>
@@ -2232,7 +2223,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v42.0 Scatter Charts + Market Insight! • Supply & Demand • Spread Line • Beautiful! 💰✅
+                v42.1 Fixed! • MEXC showing • ONE median • 24h Volume (not available)! 💰✅
             </footer>
         </div>
         
@@ -2244,10 +2235,9 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             // Chart data from Python
             const chartData = {chart_data_json};
             const historyData = {history_data_json};
-            const marketSupply = {market_supply_json};
-            const marketDemand = {market_demand_json};
+            const tradeVolume = {trade_volume_json};
             
-            // Render market supply/demand bars
+            // Render 24h trade volume stacked bars
             function renderMarketInsight() {{
                 const colors = {{
                     'BINANCE': '#F3BA2F',
@@ -2262,78 +2252,52 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                     'BYBIT': '🟠'
                 }};
                 
-                // Calculate max for scaling
-                let maxSupply = 0, maxDemand = 0;
-                for (const [ex, data] of Object.entries(marketSupply)) {{
-                    maxSupply = Math.max(maxSupply, data.volume || 0);
-                }}
-                for (const [ex, data] of Object.entries(marketDemand)) {{
-                    maxDemand = Math.max(maxDemand, data.volume || 0);
+                // Calculate max total for scaling
+                let maxTotal = 0;
+                let totalBuy = 0, totalSell = 0;
+                for (const [ex, data] of Object.entries(tradeVolume)) {{
+                    maxTotal = Math.max(maxTotal, (data.buy || 0) + (data.sell || 0));
+                    totalBuy += data.buy || 0;
+                    totalSell += data.sell || 0;
                 }}
                 
-                // Render Supply bars
-                const supplyContainer = document.getElementById('supplyBars');
-                let supplyHTML = '';
-                let totalSupplyVol = 0;
+                // Render stacked bars
+                const container = document.getElementById('volumeStackedChart');
+                let html = '';
                 
                 for (const ex of ['BINANCE', 'MEXC', 'OKX', 'BYBIT']) {{
-                    const data = marketSupply[ex] || {{ volume: 0, price: 0 }};
-                    totalSupplyVol += data.volume;
-                    const pct = maxSupply > 0 ? (data.volume / maxSupply * 100) : 0;
-                    const priceStr = data.price > 0 ? data.price.toFixed(0) + ' Br' : '-';
+                    const data = tradeVolume[ex] || {{ buy: 0, sell: 0, total: 0 }};
+                    const buyVol = data.buy || 0;
+                    const sellVol = data.sell || 0;
+                    const total = buyVol + sellVol;
                     
-                    supplyHTML += `
-                        <div style="display:flex;align-items:center;gap:10px;">
-                            <div style="width:90px;font-size:13px;color:var(--text);display:flex;align-items:center;gap:6px;">
-                                <span>${{emojis[ex] || '⚪'}}</span>
-                                <span style="color:${{colors[ex]}};font-weight:600;">${{ex}}</span>
+                    const buyPct = maxTotal > 0 ? (buyVol / maxTotal * 100) : 0;
+                    const sellPct = maxTotal > 0 ? (sellVol / maxTotal * 100) : 0;
+                    
+                    html += `
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <div style="width:100px;display:flex;align-items:center;gap:8px;">
+                                <span style="font-size:18px;">${{emojis[ex]}}</span>
+                                <span style="color:${{colors[ex]}};font-weight:700;font-size:14px;">${{ex}}</span>
                             </div>
-                            <div style="flex:1;height:24px;background:var(--border);border-radius:6px;overflow:hidden;position:relative;">
-                                <div style="height:100%;width:${{Math.max(pct, data.volume > 0 ? 2 : 0)}}%;background:${{colors[ex]}};opacity:0.8;transition:width 0.5s;"></div>
+                            <div style="flex:1;height:32px;background:var(--border);border-radius:8px;overflow:hidden;display:flex;">
+                                <div style="height:100%;width:${{buyPct}}%;background:var(--green);transition:width 0.5s;" title="Buy: $${{buyVol.toLocaleString()}}"></div>
+                                <div style="height:100%;width:${{sellPct}}%;background:var(--red);transition:width 0.5s;" title="Sell: $${{sellVol.toLocaleString()}}"></div>
                             </div>
-                            <div style="width:100px;text-align:right;font-size:13px;color:var(--text);font-weight:500;">
-                                ${{data.volume > 0 ? data.volume.toLocaleString() + ' $' : '-'}}
-                            </div>
-                            <div style="width:60px;text-align:right;font-size:12px;color:var(--text-secondary);">
-                                ${{priceStr}}
+                            <div style="width:180px;display:flex;gap:10px;justify-content:flex-end;">
+                                <span style="color:var(--green);font-size:13px;font-weight:600;">$${{buyVol > 0 ? buyVol.toLocaleString() : '0'}}</span>
+                                <span style="color:var(--text-secondary);">/</span>
+                                <span style="color:var(--red);font-size:13px;font-weight:600;">$${{sellVol > 0 ? sellVol.toLocaleString() : '0'}}</span>
                             </div>
                         </div>
                     `;
                 }}
-                supplyContainer.innerHTML = supplyHTML;
-                document.getElementById('totalSupply').innerHTML = `<span style="color:var(--green);">Total Supply:</span> ${{totalSupplyVol.toLocaleString()}} USDT`;
+                container.innerHTML = html;
                 
-                // Render Demand bars
-                const demandContainer = document.getElementById('demandBars');
-                let demandHTML = '';
-                let totalDemandVol = 0;
-                
-                for (const ex of ['BINANCE', 'MEXC', 'OKX', 'BYBIT']) {{
-                    const data = marketDemand[ex] || {{ volume: 0, price: 0 }};
-                    totalDemandVol += data.volume;
-                    const pct = maxDemand > 0 ? (data.volume / maxDemand * 100) : 0;
-                    const priceStr = data.price > 0 ? data.price.toFixed(0) + ' Br' : '-';
-                    
-                    demandHTML += `
-                        <div style="display:flex;align-items:center;gap:10px;">
-                            <div style="width:90px;font-size:13px;color:var(--text);display:flex;align-items:center;gap:6px;">
-                                <span>${{emojis[ex] || '⚪'}}</span>
-                                <span style="color:${{colors[ex]}};font-weight:600;">${{ex}}</span>
-                            </div>
-                            <div style="flex:1;height:24px;background:var(--border);border-radius:6px;overflow:hidden;position:relative;">
-                                <div style="height:100%;width:${{Math.max(pct, data.volume > 0 ? 2 : 0)}}%;background:${{colors[ex]}};opacity:0.8;transition:width 0.5s;"></div>
-                            </div>
-                            <div style="width:100px;text-align:right;font-size:13px;color:var(--text);font-weight:500;">
-                                ${{data.volume > 0 ? data.volume.toLocaleString() + ' $' : '-'}}
-                            </div>
-                            <div style="width:60px;text-align:right;font-size:12px;color:var(--text-secondary);">
-                                ${{priceStr}}
-                            </div>
-                        </div>
-                    `;
-                }}
-                demandContainer.innerHTML = demandHTML;
-                document.getElementById('totalDemand').innerHTML = `<span style="color:var(--red);">Total Demand:</span> ${{totalDemandVol.toLocaleString()}} USDT`;
+                // Update totals
+                document.getElementById('totalBuyVolume').innerHTML = `🟢 Total Buy: $${{totalBuy.toLocaleString()}}`;
+                document.getElementById('totalSellVolume').innerHTML = `🔴 Total Sell: $${{totalSell.toLocaleString()}}`;
+                document.getElementById('grandTotalVolume').innerHTML = `💰 Grand Total: $${{(totalBuy + totalSell).toLocaleString()}}`;
             }}
             
             // Initialize Plotly Charts
@@ -2343,7 +2307,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 const textColor = isDark ? '#ffffff' : '#1a1a1a';
                 const gridColor = isDark ? '#38383A' : '#e0e0e0';
                 
-                // Price Distribution Chart (SCATTER - beautiful scattered dots!)
+                // Price Distribution Chart (SCATTER with ONE median line)
                 const scatterTraces = [];
                 const colors = {{
                     'BINANCE': '#F3BA2F',
@@ -2354,9 +2318,16 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 
                 let allPrices = [];
                 let xIndex = 0;
-                for (const [exchange, prices] of Object.entries(chartData)) {{
+                const exchangeOrder = ['BINANCE', 'MEXC', 'OKX', 'BYBIT'];
+                const exchangeNames = [];
+                
+                // First pass: collect all prices and create scatter traces
+                for (const exchange of exchangeOrder) {{
+                    const prices = chartData[exchange];
                     if (prices && prices.length > 0) {{
                         allPrices = allPrices.concat(prices);
+                        exchangeNames.push(exchange);
+                        
                         // Create jittered x positions for scatter effect
                         const xPositions = prices.map(() => xIndex + (Math.random() - 0.5) * 0.6);
                         scatterTraces.push({{
@@ -2367,33 +2338,35 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                             y: prices,
                             marker: {{ 
                                 color: colors[exchange] || '#00C805',
-                                size: 8,
-                                opacity: 0.7,
-                                line: {{ color: 'white', width: 1 }}
+                                size: 10,
+                                opacity: 0.75,
+                                line: {{ color: 'rgba(255,255,255,0.5)', width: 1 }}
                             }},
                             hovertemplate: '<b>%{{y:.2f}} ETB</b><extra>' + exchange + '</extra>'
-                        }});
-                        
-                        // Add median line for each exchange
-                        const sortedPrices = [...prices].sort((a, b) => a - b);
-                        const median = sortedPrices[Math.floor(sortedPrices.length / 2)];
-                        scatterTraces.push({{
-                            type: 'scatter',
-                            mode: 'lines',
-                            name: exchange + ' Median',
-                            x: [xIndex - 0.35, xIndex + 0.35],
-                            y: [median, median],
-                            line: {{ color: colors[exchange], width: 3 }},
-                            showlegend: false,
-                            hoverinfo: 'skip'
                         }});
                         xIndex++;
                     }}
                 }}
                 
-                const exchangeNames = Object.keys(chartData).filter(k => chartData[k] && chartData[k].length > 0);
-                const minPrice = Math.min(...allPrices) - 5;
-                const maxPrice = Math.max(...allPrices) + 5;
+                // Calculate ONE overall median from all prices
+                if (allPrices.length > 0) {{
+                    const sortedAll = [...allPrices].sort((a, b) => a - b);
+                    const overallMedian = sortedAll[Math.floor(sortedAll.length / 2)];
+                    
+                    // Add ONE horizontal median line across all exchanges
+                    scatterTraces.push({{
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Median: ' + overallMedian.toFixed(2) + ' ETB',
+                        x: [-0.5, exchangeNames.length - 0.5],
+                        y: [overallMedian, overallMedian],
+                        line: {{ color: '#00ff9d', width: 3, dash: 'solid' }},
+                        hoverinfo: 'name'
+                    }});
+                }}
+                
+                const minPrice = allPrices.length > 0 ? Math.min(...allPrices) - 5 : 130;
+                const maxPrice = allPrices.length > 0 ? Math.max(...allPrices) + 5 : 190;
                 
                 const scatterLayout = {{
                     paper_bgcolor: bgColor,
@@ -2414,7 +2387,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                         tickmode: 'array',
                         tickvals: exchangeNames.map((_, i) => i),
                         ticktext: exchangeNames,
-                        range: [-0.5, exchangeNames.length - 0.5]
+                        range: [-0.5, Math.max(exchangeNames.length - 0.5, 0.5)]
                     }}
                 }};
                 
@@ -2830,12 +2803,12 @@ def generate_feed_html(trades, peg):
 
 # --- MAIN ---
 def main():
-    print("🔍 Running v42.0 (Beautiful Scatter Charts + Market Insight!)...", file=sys.stderr)
+    print("🔍 Running v42.1 (Fixed Charts + 24h Volume!)...", file=sys.stderr)
     print("   📊 Strategy: 8 snapshots × 15s intervals = 105s coverage (58%!)", file=sys.stderr)
-    print("   ✨ NEW: Scatter plots (like before, prettier!)", file=sys.stderr)
-    print("   ✨ NEW: 24h trend with spread line!", file=sys.stderr)
-    print("   ✨ NEW: Live Market Insight section!", file=sys.stderr)
-    print("   ✅ KEEP: All v41.9 fixes", file=sys.stderr)
+    print("   🚨 FIXED: MEXC now shows in scatter chart!", file=sys.stderr)
+    print("   🚨 FIXED: ONE median line (green)", file=sys.stderr)
+    print("   🚨 FIXED: 24h Trade Volume (not available)", file=sys.stderr)
+    print("   ✅ KEEP: All v42.0 features", file=sys.stderr)
     print("   💰 COST: Only $50/month!", file=sys.stderr)
     
     # Configuration - MAXIMUM snapshots within GitHub Actions time budget
