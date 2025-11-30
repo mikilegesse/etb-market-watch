@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v41.8 (Bybit Duplicates + MEXC Pagination!)
-- FIXED: Bybit duplicate trades (deduplication in save_trades)
-- FIXED: REQUEST vs BOUGHT/SOLD clearly differentiated
-- FIXED: REQUESTs excluded from volume calculations
-- FIXED: MEXC pagination increased (3 → 10 pages for more ads)
-- NEW: Chart zoom controls (+ / − / reset)
-- KEEP: All v41.7 fixes (Binance pagination, no duplicate functions)
+🇪🇹 ETB Financial Terminal v41.9 (Beautiful Plotly Charts!)
+- NEW: Interactive Plotly.js charts (box plots + line charts)
+- NEW: Price distribution by exchange (box plots)
+- NEW: 24h trend with fill area (line chart)
+- REMOVED: Zoom controls (Plotly has built-in zoom)
+- KEEP: All v41.8 fixes (deduplication, MEXC pagination, etc.)
 - COST: Only $50/month for OKX!
 """
 
@@ -1147,6 +1146,22 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     buys_count = len([t for t in recent_trades if t.get('type') == 'buy'])
     sells_count = len([t for t in recent_trades if t.get('type') == 'sell'])
     
+    # Generate Plotly chart data
+    chart_data = {}
+    for source, ads in grouped_ads.items():
+        prices = [a["price"] / peg for a in ads if a.get("price", 0) > 0]  # Normalized prices
+        if prices:
+            chart_data[source] = prices
+    chart_data_json = json.dumps(chart_data)
+    
+    # Generate history data for trend chart
+    history_data = {
+        'dates': [d.isoformat() if hasattr(d, 'isoformat') else str(d) for d in dates] if dates else [],
+        'medians': medians if medians else [],
+        'officials': [o if o else 0 for o in load_history()[4]] if load_history()[4] else []
+    }
+    history_data_json = json.dumps(history_data)
+    
     # Generate feed HTML (server-side rendering of initial state)
     feed_html = generate_feed_html(recent_trades, peg)
     
@@ -1271,7 +1286,8 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market v41.8 - No Duplicates + Zoom</title>
+        <title>ETB Market v41.9 - Beautiful Plotly Charts</title>
+        <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
         <style>
             * {{ margin: 0; padding: 0; box-sizing: border-box; }}
             
@@ -1507,46 +1523,20 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 position: relative;
             }}
             
-            .chart-zoom-controls {{
-                position: absolute;
-                top: 30px;
-                right: 30px;
-                display: flex;
-                gap: 8px;
-                z-index: 10;
+            .plotly-chart {{
+                width: 100%;
+                height: 350px;
+                border-radius: 12px;
             }}
             
-            .zoom-btn {{
-                width: 36px;
-                height: 36px;
-                border-radius: 8px;
-                border: 1px solid var(--border);
-                background: var(--card);
+            .chart-title {{
+                font-size: 16px;
+                font-weight: 600;
                 color: var(--text);
-                cursor: pointer;
-                font-size: 18px;
+                margin-bottom: 12px;
                 display: flex;
                 align-items: center;
-                justify-content: center;
-                transition: all 0.2s;
-            }}
-            
-            .zoom-btn:hover {{
-                background: var(--border);
-            }}
-            
-            .chart-zoom-container {{
-                overflow: auto;
-                max-height: 500px;
-                border-radius: 12px;
-            }}
-            
-            .chart-card img {{
-                width: 100%;
-                min-width: 100%;
-                border-radius: 12px;
-                display: block;
-                transition: transform 0.3s ease;
+                gap: 8px;
             }}
             
             .table-card {{
@@ -1990,15 +1980,16 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                         <button class="time-btn" data-period="1y" onclick="filterTrades('1y')">1Y</button>
                     </div>
                     
+                    <!-- Price Distribution Chart (Plotly) -->
                     <div class="chart-card">
-                        <div class="chart-zoom-controls">
-                            <button class="zoom-btn" onclick="zoomChart(-0.2)" title="Zoom Out">−</button>
-                            <button class="zoom-btn" onclick="zoomChart(0)" title="Reset Zoom">⟲</button>
-                            <button class="zoom-btn" onclick="zoomChart(0.2)" title="Zoom In">+</button>
-                        </div>
-                        <div class="chart-zoom-container" id="chartContainer">
-                            <img src="{GRAPH_FILENAME}?v={cache_buster}" id="chartImg" alt="Market Chart" title="Price Distribution and 24h Trend">
-                        </div>
+                        <div class="chart-title">📊 Live Price Distribution by Exchange</div>
+                        <div id="priceDistChart" class="plotly-chart"></div>
+                    </div>
+                    
+                    <!-- 24h Trend Chart (Plotly) -->
+                    <div class="chart-card">
+                        <div class="chart-title">📈 24h Price Trend</div>
+                        <div id="trendChart" class="plotly-chart"></div>
                     </div>
                     
                     <div class="table-card">
@@ -2195,31 +2186,123 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v41.8 No Duplicates! • Bybit fixed • MEXC 10 pages • Chart zoom • REQUESTs excluded! 💰✅
+                v41.9 Beautiful Charts! • Plotly.js • Interactive • No duplicates • $50/mo only! 💰✅
             </footer>
         </div>
         
         <script>
             const allTrades = {json.dumps(recent_trades)};
-            const imgDark = "{GRAPH_FILENAME}?v={cache_buster}";
-            const imgLight = "{GRAPH_LIGHT_FILENAME}?v={cache_buster}";
             let currentPeriod = 'live';
             let currentSource = 'all';
-            let chartZoom = 1;
             
-            // Chart zoom function
-            function zoomChart(delta) {{
-                const img = document.getElementById('chartImg');
-                if (delta === 0) {{
-                    // Reset
-                    chartZoom = 1;
-                }} else {{
-                    chartZoom = Math.max(0.5, Math.min(3, chartZoom + delta));
+            // Chart data from Python
+            const chartData = {chart_data_json};
+            const historyData = {history_data_json};
+            
+            // Initialize Plotly Charts
+            function initCharts() {{
+                const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+                const bgColor = isDark ? '#1C1C1E' : '#ffffff';
+                const textColor = isDark ? '#ffffff' : '#1a1a1a';
+                const gridColor = isDark ? '#38383A' : '#e0e0e0';
+                
+                // Price Distribution Chart (Box Plot)
+                const boxTraces = [];
+                const colors = {{
+                    'BINANCE': '#F3BA2F',
+                    'MEXC': '#2E55E6', 
+                    'OKX': '#A855F7',
+                    'BYBIT': '#FF6B00'
+                }};
+                
+                for (const [exchange, prices] of Object.entries(chartData)) {{
+                    if (prices && prices.length > 0) {{
+                        boxTraces.push({{
+                            type: 'box',
+                            name: exchange,
+                            y: prices,
+                            marker: {{ color: colors[exchange] || '#00C805' }},
+                            boxpoints: 'outliers',
+                            jitter: 0.3,
+                            pointpos: 0,
+                            hoverinfo: 'y+name'
+                        }});
+                    }}
                 }}
-                img.style.transform = `scale(${{chartZoom}})`;
-                img.style.transformOrigin = 'top left';
-                img.style.minWidth = `${{100 / chartZoom}}%`;
+                
+                const boxLayout = {{
+                    paper_bgcolor: bgColor,
+                    plot_bgcolor: bgColor,
+                    font: {{ color: textColor, family: '-apple-system, BlinkMacSystemFont, sans-serif' }},
+                    showlegend: true,
+                    legend: {{ orientation: 'h', y: -0.15 }},
+                    margin: {{ l: 60, r: 30, t: 30, b: 60 }},
+                    yaxis: {{
+                        title: 'Price (ETB)',
+                        gridcolor: gridColor,
+                        zerolinecolor: gridColor
+                    }},
+                    xaxis: {{
+                        gridcolor: gridColor
+                    }}
+                }};
+                
+                Plotly.newPlot('priceDistChart', boxTraces, boxLayout, {{responsive: true, displayModeBar: false}});
+                
+                // 24h Trend Chart (Line)
+                if (historyData.dates && historyData.dates.length > 1) {{
+                    const trendTraces = [
+                        {{
+                            type: 'scatter',
+                            mode: 'lines',
+                            name: 'Black Market Rate',
+                            x: historyData.dates,
+                            y: historyData.medians,
+                            line: {{ color: '#00ff9d', width: 3 }},
+                            fill: 'tozeroy',
+                            fillcolor: 'rgba(0, 255, 157, 0.1)'
+                        }}
+                    ];
+                    
+                    if (historyData.officials && historyData.officials.some(v => v > 0)) {{
+                        trendTraces.push({{
+                            type: 'scatter',
+                            mode: 'lines',
+                            name: 'Official Rate',
+                            x: historyData.dates,
+                            y: historyData.officials,
+                            line: {{ color: '#FF9500', width: 2, dash: 'dot' }}
+                        }});
+                    }}
+                    
+                    const trendLayout = {{
+                        paper_bgcolor: bgColor,
+                        plot_bgcolor: bgColor,
+                        font: {{ color: textColor, family: '-apple-system, BlinkMacSystemFont, sans-serif' }},
+                        showlegend: true,
+                        legend: {{ orientation: 'h', y: -0.15 }},
+                        margin: {{ l: 60, r: 30, t: 30, b: 60 }},
+                        xaxis: {{
+                            title: 'Time',
+                            gridcolor: gridColor,
+                            tickformat: '%H:%M'
+                        }},
+                        yaxis: {{
+                            title: 'Rate (ETB)',
+                            gridcolor: gridColor,
+                            zerolinecolor: gridColor
+                        }},
+                        hovermode: 'x unified'
+                    }};
+                    
+                    Plotly.newPlot('trendChart', trendTraces, trendLayout, {{responsive: true, displayModeBar: false}});
+                }} else {{
+                    document.getElementById('trendChart').innerHTML = '<div style="padding:60px;text-align:center;color:var(--text-secondary)"><div style="font-size:48px;margin-bottom:16px">📈</div><div>Collecting trend data...</div></div>';
+                }}
             }}
+            
+            // Initialize charts on load
+            document.addEventListener('DOMContentLoaded', initCharts);
             
             function toggleTheme() {{
                 const html = document.documentElement;
@@ -2227,14 +2310,14 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 const next = current === 'light' ? 'dark' : 'light';
                 html.setAttribute('data-theme', next);
                 localStorage.setItem('theme', next);
-                document.getElementById('chartImg').src = next === 'light' ? imgLight : imgDark;
                 document.getElementById('theme-icon').textContent = next === 'light' ? '☀️' : '🌙';
+                // Reinitialize charts with new theme
+                initCharts();
             }}
             
             (function() {{
                 const theme = localStorage.getItem('theme') || 'dark';
                 document.documentElement.setAttribute('data-theme', theme);
-                document.getElementById('chartImg').src = theme === 'light' ? imgLight : imgDark;
                 document.getElementById('theme-icon').textContent = theme === 'light' ? '☀️' : '🌙';
             }})();
             
@@ -2505,12 +2588,12 @@ def generate_feed_html(trades, peg):
 
 # --- MAIN ---
 def main():
-    print("🔍 Running v41.8 (Deduplication + MEXC Pagination!)...", file=sys.stderr)
+    print("🔍 Running v41.9 (Beautiful Plotly Charts!)...", file=sys.stderr)
     print("   📊 Strategy: 8 snapshots × 15s intervals = 105s coverage (58%!)", file=sys.stderr)
-    print("   🚨 FIXED: Bybit duplicate trades (deduplication)", file=sys.stderr)
-    print("   🚨 FIXED: REQUESTs excluded from volume", file=sys.stderr)
-    print("   🚨 FIXED: MEXC pagination 3→10 pages", file=sys.stderr)
-    print("   ✅ NEW: Chart zoom controls", file=sys.stderr)
+    print("   ✨ NEW: Interactive Plotly.js charts!", file=sys.stderr)
+    print("   ✨ NEW: Box plots for price distribution!", file=sys.stderr)
+    print("   ✨ NEW: Line chart for 24h trend!", file=sys.stderr)
+    print("   ✅ KEEP: All v41.8 fixes (deduplication, etc.)", file=sys.stderr)
     print("   💰 COST: Only $50/month!", file=sys.stderr)
     
     # Configuration - MAXIMUM snapshots within GitHub Actions time budget
