@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v42.2 (Improved Accuracy - False Positive Fixes!)
+🇪🇹 ETB Financial Terminal v42.2 (RapidAPI + Improved Accuracy!)
+- NEW: Binance now uses RapidAPI (same as MEXC!) - more reliable
 - FIXED: Cancelled Ad Detection - If advertiser has new ad at different price = REPRICE (not trade)
 - FIXED: Repricing Issue - Same advertiser changing price doesn't count as trade+request
 - IMPROVED: Large ads (>$5000) disappearing flagged as "possible cancel" (50% confidence)
 - IMPROVED: Partial fills marked as "high confidence" (most reliable)
-- IMPROVED: Summary shows confidence breakdown
-- KEEP: All v42.1 features
 - ACCURACY: ~95% (up from ~85%)
+- COST: RapidAPI handles Binance + MEXC (FREE tier), only OKX uses p2p.army ($50/month)
 """
 
 import requests
@@ -85,59 +85,81 @@ def fetch_usdt_peg():
     except:
         return 1.00
 
-def fetch_binance_p2p_direct(side="SELL"):
-    """Fetch Binance P2P directly from their API (more reliable!)"""
-    url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
-    ads = []
+def fetch_binance_p2p_rapidapi(side="SELL", page=1):
+    """Fetch Binance P2P via RapidAPI (more reliable, same as MEXC!)"""
+    url = "https://binance-p2p-api.p.rapidapi.com/search"
     
+    headers = {
+        "Content-Type": "application/json",
+        "X-RapidAPI-Key": "28e60e8b83msh2f62e830aa1f09ap18bad1jsna2ade74a847c",
+        "X-RapidAPI-Host": "binance-p2p-api.p.rapidapi.com"
+    }
+    
+    payload = {
+        "asset": "USDT",
+        "fiat": "ETB",
+        "merchantCheck": False,
+        "page": page,
+        "payTypes": [],
+        "publisherType": None,
+        "rows": 20,
+        "tradeType": side
+    }
+    
+    ads = []
     try:
-        payload = {
-            "asset": "USDT",
-            "fiat": "ETB",
-            "merchantCheck": False,
-            "page": 1,
-            "payTypes": [],
-            "publisherType": None,
-            "rows": 50,  # Increased from 20 to 50 to catch more activity!
-            "tradeType": side,  # "SELL" or "BUY"
-        }
-        
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        
-        r = requests.post(url, headers=headers, json=payload, timeout=10)
+        r = requests.post(url, headers=headers, json=payload, timeout=15)
         data = r.json()
         
-        if data.get("success") and data.get("data"):
-            for item in data["data"]:
-                adv = item.get("adv", {})
-                advertiser = item.get("advertiser", {})
-                
-                try:
-                    ads.append({
-                        'source': 'BINANCE',
-                        'advertiser': advertiser.get('nickName', 'Binance User'),
-                        'price': float(adv.get('price', 0)),
-                        'available': float(adv.get('surplusAmount', 0)),
-                        'ad_id': adv.get('advNo', ''),  # Unique ad ID for tracking
-                        'trade_type': side.lower(),  # Track if this is buy or sell ad
-                    })
-                except Exception as e:
-                    continue
+        # Parse response - RapidAPI usually returns same structure as direct
+        items = data.get("data", [])
+        if not items and isinstance(data, list):
+            items = data
         
-        print(f"   BINANCE (Direct API) {side}: {len(ads)} ads", file=sys.stderr)
+        for item in items:
+            adv = item.get("adv", item)  # Handle both wrapped and unwrapped format
+            advertiser = item.get("advertiser", {})
+            
+            try:
+                ads.append({
+                    'source': 'BINANCE',
+                    'advertiser': advertiser.get('nickName', adv.get('nickName', 'Binance User')),
+                    'price': float(adv.get('price', 0)),
+                    'available': float(adv.get('surplusAmount', adv.get('available', adv.get('tradableQuantity', 0)))),
+                    'ad_id': adv.get('advNo', adv.get('id', '')),
+                    'ad_type': side,
+                })
+            except Exception:
+                continue
+        
+        if page == 1:
+            print(f"   BINANCE (RapidAPI) {side} page {page}: {len(ads)} ads", file=sys.stderr)
     except Exception as e:
-        print(f"   BINANCE (Direct API) {side} error: {e}", file=sys.stderr)
+        print(f"   BINANCE (RapidAPI) {side} error: {e}", file=sys.stderr)
     
     return ads
 
-def fetch_binance_p2p_both_sides():
-    """Fetch BOTH buy and sell ads from Binance"""
+def fetch_binance_p2p_all_pages(side="SELL", max_pages=10):
+    """Fetch multiple pages from Binance RapidAPI"""
+    all_ads = []
+    
+    for page in range(1, max_pages + 1):
+        ads = fetch_binance_p2p_rapidapi(side, page)
+        if not ads:
+            break  # No more data
+        all_ads.extend(ads)
+        if len(ads) < 20:
+            break  # Last page
+        time.sleep(0.3)  # Rate limit
+    
+    print(f"   BINANCE (RapidAPI) {side} total: {len(all_ads)} ads from {min(page, max_pages)} pages", file=sys.stderr)
+    return all_ads
+
+def fetch_binance_both_sides():
+    """Fetch BOTH buy and sell ads from Binance via RapidAPI"""
     with ThreadPoolExecutor(max_workers=2) as ex:
-        f_sell = ex.submit(lambda: fetch_binance_p2p_direct("SELL"))
-        f_buy = ex.submit(lambda: fetch_binance_p2p_direct("BUY"))
+        f_sell = ex.submit(lambda: fetch_binance_p2p_all_pages("SELL", max_pages=10))
+        f_buy = ex.submit(lambda: fetch_binance_p2p_all_pages("BUY", max_pages=10))
         
         sell_ads = f_sell.result() or []
         buy_ads = f_buy.result() or []
@@ -145,9 +167,6 @@ def fetch_binance_p2p_both_sides():
         all_ads = sell_ads + buy_ads
         print(f"   BINANCE Total: {len(all_ads)} ads ({len(sell_ads)} sells, {len(buy_ads)} buys)", file=sys.stderr)
         return all_ads
-        print(f"   BINANCE (Direct API) error: {e}", file=sys.stderr)
-    
-    return ads
 
 def fetch_p2p_army_exchange(market, side="SELL"):
     """Universal fetcher with ROBUST volume and username detection + ad_type tracking"""
@@ -270,78 +289,6 @@ def fetch_bybit_direct(side="SELL"):
     
     return ads
 
-def fetch_binance_direct(side="SELL"):
-    """
-    Fetch Binance P2P ads using direct free API WITH PAGINATION!
-    Based on working v41.1 code that found 400+ ads
-    """
-    url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
-    
-    all_ads = []
-    seen_ids = set()
-    page = 1
-    max_pages = 20  # Scan up to 20 pages (approx 400 ads!)
-    
-    while page <= max_pages:
-        payload = {
-            "asset": "USDT",
-            "fiat": "ETB",
-            "merchantCheck": False,
-            "page": page,
-            "rows": 20,  # Binance returns 20 per page
-            "tradeType": side
-        }
-        
-        try:
-            r = requests.post(url, headers=HEADERS, json=payload, timeout=10)
-            data = r.json()
-            
-            if data.get("code") == "000000" and data.get("data"):
-                items = data['data']
-                
-                # Stop if page is empty
-                if not items:
-                    break
-                
-                new_ads_count = 0
-                for item in items:
-                    try:
-                        # Extract data
-                        adv = item['adv']
-                        advertiser = item['advertiser']
-                        
-                        price = float(adv['price'])
-                        vol = float(adv['surplusAmount'])
-                        name = advertiser['nickName']
-                        ad_no = adv['advNo']  # Unique ad ID for deduplication
-                        
-                        if ad_no not in seen_ids:
-                            seen_ids.add(ad_no)
-                            all_ads.append({
-                                'source': 'BINANCE',
-                                'ad_type': side,
-                                'advertiser': name,
-                                'price': price,
-                                'available': vol,
-                            })
-                            new_ads_count += 1
-                    except:
-                        continue
-                
-                # Stop if no new ads found on this page
-                if new_ads_count == 0:
-                    break
-                
-                page += 1
-                time.sleep(0.3)  # Rate limiting between pages
-            else:
-                break
-        except Exception as e:
-            break
-    
-    print(f"   BINANCE {side} (direct API): {len(all_ads)} ads from {page-1} pages", file=sys.stderr)
-    return all_ads
-
 def fetch_mexc_rapidapi(side="SELL"):
     """Fetch MEXC P2P ads using RapidAPI (WORKING v40.3 code!)"""
     url = "https://mexc-p2p-api.p.rapidapi.com/mexc/p2p/search"  # Correct endpoint!
@@ -441,28 +388,6 @@ def fetch_mexc_rapidapi(side="SELL"):
     
     return ads
 
-def fetch_binance_both_sides():
-    """Fetch BOTH buy and sell ads from Binance using direct API with deduplication"""
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        f_sell = ex.submit(lambda: fetch_binance_direct("SELL"))
-        f_buy = ex.submit(lambda: fetch_binance_direct("BUY"))
-        
-        sell_ads = f_sell.result() or []
-        buy_ads = f_buy.result() or []
-        
-        # Deduplicate across both sides using advertiser + price
-        all_ads = sell_ads + buy_ads
-        seen = set()
-        deduped = []
-        
-        for ad in all_ads:
-            key = f"{ad['advertiser']}_{ad['price']}_{ad.get('ad_type', 'SELL')}"
-            if key not in seen:
-                seen.add(key)
-                deduped.append(ad)
-        
-        return deduped
-
 def fetch_mexc_both_sides():
     """Fetch BOTH buy and sell ads from MEXC using RapidAPI with deduplication"""
     with ThreadPoolExecutor(max_workers=2) as ex:
@@ -524,7 +449,7 @@ def fetch_exchange_both_sides(exchange_name):
 def capture_market_snapshot():
     """Capture market snapshot: Binance (direct), MEXC (RapidAPI), OKX (p2p.army), Bybit (direct)"""
     with ThreadPoolExecutor(max_workers=10) as ex:
-        f_binance = ex.submit(fetch_binance_both_sides)  # Direct API (FREE!)
+        f_binance = ex.submit(fetch_binance_both_sides)  # RapidAPI (FREE!)
         f_mexc = ex.submit(fetch_mexc_both_sides)  # RapidAPI  
         f_okx = ex.submit(fetch_exchange_both_sides, "okx")  # Only OKX uses p2p.army now
         f_bybit = ex.submit(fetch_bybit_both_sides)  # Direct API (FREE!)
@@ -1374,7 +1299,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market v42.2 - Improved Accuracy</title>
+        <title>ETB Market v42.2 - RapidAPI + Improved Accuracy</title>
         <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
         <style>
             * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -2303,7 +2228,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v42.2 Improved Accuracy! • Reprice Detection • Confidence Levels • ~95% Accurate! 💰✅
+                v42.2 RapidAPI! • Binance+MEXC via RapidAPI • Reprice Detection • ~95% Accurate! 💰✅
             </footer>
         </div>
         
@@ -2883,13 +2808,13 @@ def generate_feed_html(trades, peg):
 
 # --- MAIN ---
 def main():
-    print("🔍 Running v42.2 (Improved Accuracy!)...", file=sys.stderr)
+    print("🔍 Running v42.2 (RapidAPI + Improved Accuracy!)...", file=sys.stderr)
     print("   📊 Strategy: 8 snapshots × 15s intervals = 105s coverage (58%!)", file=sys.stderr)
+    print("   🌐 Binance: RapidAPI (same as MEXC!) - FREE tier", file=sys.stderr)
     print("   🎯 FIXED: Cancelled ad detection (reprice vs trade)", file=sys.stderr)
     print("   🎯 FIXED: Repricing no longer double-counts", file=sys.stderr)
-    print("   🎯 NEW: Confidence levels (high/medium)", file=sys.stderr)
     print("   📈 ACCURACY: ~95% (up from ~85%)", file=sys.stderr)
-    print("   💰 COST: Only $50/month!", file=sys.stderr)
+    print("   💰 COST: Only $50/month (OKX only)!", file=sys.stderr)
     
     # Configuration - MAXIMUM snapshots within GitHub Actions time budget
     NUM_SNAPSHOTS = 8  # Increased from 4 to 8!
