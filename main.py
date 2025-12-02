@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v42.2 (Improved Accuracy - False Positive Fixes!)
-- FIXED: Cancelled Ad Detection - If advertiser has new ad at different price = REPRICE (not trade)
-- FIXED: Repricing Issue - Same advertiser changing price doesn't count as trade+request
-- IMPROVED: Large ads (>$5000) disappearing flagged as "possible cancel" (50% confidence)
-- IMPROVED: Partial fills marked as "high confidence" (most reliable)
-- IMPROVED: Summary shows confidence breakdown
-- KEEP: All v42.1 features
-- ACCURACY: ~95% (up from ~85%)
+🇪🇹 ETB Financial Terminal v42.3 (ACCURATE Volume Tracking!)
+- FIXED: Volume tracking now ONLY counts partial fills (inventory changes)
+- DISABLED: Disappeared ads counting (was causing $250M+ false volume!)
+- ROLLBACK: Binance back to direct API (more reliable)
+- KEEP: MEXC via RapidAPI
+- ACCURACY: Now realistic (was showing $250M, should be ~$100K-$1M/day)
+- COST: Only $50/month for OKX!
 """
 
 import requests
@@ -85,69 +84,97 @@ def fetch_usdt_peg():
     except:
         return 1.00
 
-def fetch_binance_p2p_direct(side="SELL"):
-    """Fetch Binance P2P directly from their API (more reliable!)"""
+def fetch_binance_direct(side="SELL"):
+    """
+    Fetch Binance P2P ads using DIRECT FREE API WITH PAGINATION!
+    Rollback from RapidAPI - more reliable for ETB market
+    """
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
-    ads = []
     
-    try:
+    all_ads = []
+    seen_ids = set()
+    page = 1
+    max_pages = 20  # Scan up to 20 pages
+    
+    while page <= max_pages:
         payload = {
             "asset": "USDT",
             "fiat": "ETB",
             "merchantCheck": False,
-            "page": 1,
-            "payTypes": [],
-            "publisherType": None,
-            "rows": 50,  # Increased from 20 to 50 to catch more activity!
-            "tradeType": side,  # "SELL" or "BUY"
+            "page": page,
+            "rows": 20,
+            "tradeType": side
         }
         
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        
-        r = requests.post(url, headers=headers, json=payload, timeout=10)
-        data = r.json()
-        
-        if data.get("success") and data.get("data"):
-            for item in data["data"]:
-                adv = item.get("adv", {})
-                advertiser = item.get("advertiser", {})
+        try:
+            r = requests.post(url, headers=HEADERS, json=payload, timeout=10)
+            data = r.json()
+            
+            if data.get("code") == "000000" and data.get("data"):
+                items = data['data']
                 
-                try:
-                    ads.append({
-                        'source': 'BINANCE',
-                        'advertiser': advertiser.get('nickName', 'Binance User'),
-                        'price': float(adv.get('price', 0)),
-                        'available': float(adv.get('surplusAmount', 0)),
-                        'ad_id': adv.get('advNo', ''),  # Unique ad ID for tracking
-                        'trade_type': side.lower(),  # Track if this is buy or sell ad
-                    })
-                except Exception as e:
-                    continue
-        
-        print(f"   BINANCE (Direct API) {side}: {len(ads)} ads", file=sys.stderr)
-    except Exception as e:
-        print(f"   BINANCE (Direct API) {side} error: {e}", file=sys.stderr)
+                if not items:
+                    break
+                
+                new_ads_count = 0
+                for item in items:
+                    try:
+                        adv = item['adv']
+                        advertiser = item['advertiser']
+                        
+                        price = float(adv['price'])
+                        vol = float(adv['surplusAmount'])
+                        name = advertiser['nickName']
+                        ad_no = adv['advNo']
+                        
+                        if ad_no not in seen_ids:
+                            seen_ids.add(ad_no)
+                            all_ads.append({
+                                'source': 'BINANCE',
+                                'ad_type': side,
+                                'advertiser': name,
+                                'price': price,
+                                'available': vol,
+                            })
+                            new_ads_count += 1
+                    except:
+                        continue
+                
+                if new_ads_count == 0:
+                    break
+                
+                page += 1
+                time.sleep(0.3)
+            else:
+                break
+        except Exception as e:
+            break
     
-    return ads
+    print(f"   BINANCE {side} (direct): {len(all_ads)} ads from {page-1} pages", file=sys.stderr)
+    return all_ads
 
-def fetch_binance_p2p_both_sides():
-    """Fetch BOTH buy and sell ads from Binance"""
+def fetch_binance_both_sides():
+    """Fetch BOTH buy and sell ads from Binance using DIRECT API"""
     with ThreadPoolExecutor(max_workers=2) as ex:
-        f_sell = ex.submit(lambda: fetch_binance_p2p_direct("SELL"))
-        f_buy = ex.submit(lambda: fetch_binance_p2p_direct("BUY"))
+        f_sell = ex.submit(lambda: fetch_binance_direct("SELL"))
+        f_buy = ex.submit(lambda: fetch_binance_direct("BUY"))
         
         sell_ads = f_sell.result() or []
         buy_ads = f_buy.result() or []
         
+        # Deduplicate
         all_ads = sell_ads + buy_ads
-        print(f"   BINANCE Total: {len(all_ads)} ads ({len(sell_ads)} sells, {len(buy_ads)} buys)", file=sys.stderr)
-        return all_ads
-        print(f"   BINANCE (Direct API) error: {e}", file=sys.stderr)
-    
-    return ads
+        seen = set()
+        deduped = []
+        
+        for ad in all_ads:
+            key = f"{ad['advertiser']}_{ad['price']}_{ad.get('ad_type', 'SELL')}"
+            if key not in seen:
+                seen.add(key)
+                deduped.append(ad)
+        
+        print(f"   BINANCE Total: {len(deduped)} ads ({len(sell_ads)} sells, {len(buy_ads)} buys)", file=sys.stderr)
+        return deduped
 
 def fetch_p2p_army_exchange(market, side="SELL"):
     """Universal fetcher with ROBUST volume and username detection + ad_type tracking"""
@@ -270,78 +297,6 @@ def fetch_bybit_direct(side="SELL"):
     
     return ads
 
-def fetch_binance_direct(side="SELL"):
-    """
-    Fetch Binance P2P ads using direct free API WITH PAGINATION!
-    Based on working v41.1 code that found 400+ ads
-    """
-    url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
-    
-    all_ads = []
-    seen_ids = set()
-    page = 1
-    max_pages = 20  # Scan up to 20 pages (approx 400 ads!)
-    
-    while page <= max_pages:
-        payload = {
-            "asset": "USDT",
-            "fiat": "ETB",
-            "merchantCheck": False,
-            "page": page,
-            "rows": 20,  # Binance returns 20 per page
-            "tradeType": side
-        }
-        
-        try:
-            r = requests.post(url, headers=HEADERS, json=payload, timeout=10)
-            data = r.json()
-            
-            if data.get("code") == "000000" and data.get("data"):
-                items = data['data']
-                
-                # Stop if page is empty
-                if not items:
-                    break
-                
-                new_ads_count = 0
-                for item in items:
-                    try:
-                        # Extract data
-                        adv = item['adv']
-                        advertiser = item['advertiser']
-                        
-                        price = float(adv['price'])
-                        vol = float(adv['surplusAmount'])
-                        name = advertiser['nickName']
-                        ad_no = adv['advNo']  # Unique ad ID for deduplication
-                        
-                        if ad_no not in seen_ids:
-                            seen_ids.add(ad_no)
-                            all_ads.append({
-                                'source': 'BINANCE',
-                                'ad_type': side,
-                                'advertiser': name,
-                                'price': price,
-                                'available': vol,
-                            })
-                            new_ads_count += 1
-                    except:
-                        continue
-                
-                # Stop if no new ads found on this page
-                if new_ads_count == 0:
-                    break
-                
-                page += 1
-                time.sleep(0.3)  # Rate limiting between pages
-            else:
-                break
-        except Exception as e:
-            break
-    
-    print(f"   BINANCE {side} (direct API): {len(all_ads)} ads from {page-1} pages", file=sys.stderr)
-    return all_ads
-
 def fetch_mexc_rapidapi(side="SELL"):
     """Fetch MEXC P2P ads using RapidAPI (WORKING v40.3 code!)"""
     url = "https://mexc-p2p-api.p.rapidapi.com/mexc/p2p/search"  # Correct endpoint!
@@ -440,28 +395,6 @@ def fetch_mexc_rapidapi(side="SELL"):
         traceback.print_exc(file=sys.stderr)
     
     return ads
-
-def fetch_binance_both_sides():
-    """Fetch BOTH buy and sell ads from Binance using direct API with deduplication"""
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        f_sell = ex.submit(lambda: fetch_binance_direct("SELL"))
-        f_buy = ex.submit(lambda: fetch_binance_direct("BUY"))
-        
-        sell_ads = f_sell.result() or []
-        buy_ads = f_buy.result() or []
-        
-        # Deduplicate across both sides using advertiser + price
-        all_ads = sell_ads + buy_ads
-        seen = set()
-        deduped = []
-        
-        for ad in all_ads:
-            key = f"{ad['advertiser']}_{ad['price']}_{ad.get('ad_type', 'SELL')}"
-            if key not in seen:
-                seen.add(key)
-                deduped.append(ad)
-        
-        return deduped
 
 def fetch_mexc_both_sides():
     """Fetch BOTH buy and sell ads from MEXC using RapidAPI with deduplication"""
@@ -588,12 +521,13 @@ def save_market_state(current_ads):
 
 def detect_real_trades(current_ads, peg):
     """
-    IMPROVED TRADE DETECTION v42.2!
+    CONSERVATIVE TRADE DETECTION v42.3!
     
-    Fixes for False Positives:
-    1. Cancelled Ad Detection: If ad disappears but advertiser has new ad = REPRICE (not trade)
-    2. Large Disappearance Skepticism: Ads >$5000 disappearing 100% flagged as "possible cancel"
-    3. Repricing Detection: Same advertiser at different price = price change, not trade+request
+    ONLY counts PARTIAL FILLS (inventory changes where ad still exists)
+    
+    DISABLED: Disappeared ads detection (was causing $250M+ false volume!)
+    - When merchants go offline/cancel ads, we can't tell if it was a trade
+    - Better to undercount than massively overcount
     
     Logic:
     - GREEN = Aggressive buying (demand/capital flight)
@@ -645,7 +579,10 @@ def detect_real_trades(current_ads, peg):
     # Track which advertisers had ads disappear (for repricing detection)
     advertisers_with_disappeared_ads = set()
     
-    # 1. Check for DISAPPEARED ads (complete fills OR cancellations)
+    # 1. DISABLED: Disappeared ads detection
+    # NOTE: This was causing MASSIVE false positives ($250M+ fake volume)
+    # When merchants go offline/cancel ads, they were counted as full trades
+    # Now we ONLY count partial fills (inventory changes) which are reliable
     disappeared_ads = set(prev_state.keys()) - set(current_state.keys())
     
     for key in disappeared_ads:
@@ -653,79 +590,18 @@ def detect_real_trades(current_ads, peg):
         if len(parts) >= 3:
             source = parts[0].upper()
             username = parts[1]
-            try:
-                price = float(parts[2])
-            except ValueError:
-                continue
-            
-            if source not in sources_checked:
-                continue
-                
-            prev_data = prev_state[key]
-            if isinstance(prev_data, dict):
-                vol = prev_data.get('available', 0)
-                ad_type = prev_data.get('ad_type', 'SELL')
-            else:
-                vol = prev_data
-                ad_type = 'SELL'
-            
-            if vol < 10:
-                continue
-            
             adv_key = f"{source}|||{username}"
             advertisers_with_disappeared_ads.add(adv_key)
             
-            # CHECK: Does this advertiser have a NEW ad at different price?
-            # If yes, this is likely a REPRICE, not a trade
-            is_reprice = False
-            if adv_key in current_advertisers:
-                for new_ad in current_advertisers[adv_key]:
-                    # Same advertiser, different price, similar volume = REPRICE
-                    new_price = new_ad['price']
-                    new_vol = new_ad['available']
-                    if abs(new_price - price) > 0.5:  # Price changed
-                        # Check if volume is similar (within 50%)
-                        vol_ratio = new_vol / vol if vol > 0 else 0
-                        if 0.5 <= vol_ratio <= 2.0:
-                            is_reprice = True
-                            print(f"   🔄 REPRICE: {source} - {username[:15]} changed price {price/peg:.2f} → {new_price/peg:.2f} ETB (NOT a trade)", file=sys.stderr)
-                            break
-            
-            if is_reprice:
-                continue  # Skip - this was a reprice, not a trade
-            
-            # CHECK: Is this a suspicious "cancelled ad"?
-            # Large ads (>$5000) disappearing completely are suspicious
-            is_suspicious = vol > 5000
-            
-            # CORRECT AGGRESSOR LOGIC
-            if ad_type.upper() in ['SELL', 'SELL_AD']:
-                aggressor_action = 'buy'
-                emoji = '🟢'
-                action_desc = 'BOUGHT'
+            # Just log it, DON'T count as trade
+            prev_data = prev_state[key]
+            if isinstance(prev_data, dict):
+                vol = prev_data.get('available', 0)
             else:
-                aggressor_action = 'sell'
-                emoji = '🔴'
-                action_desc = 'SOLD'
+                vol = prev_data
             
-            if is_suspicious:
-                # Flag but still record (could be real trade)
-                print(f"   {emoji} {action_desc} (⚠️ possible cancel): {source} - {username[:15]} (ad gone, {vol:,.0f} USDT)", file=sys.stderr)
-                # Apply 50% confidence for suspicious disappearances
-                vol = vol * 0.5
-            else:
-                print(f"   {emoji} {action_desc}: {source} - {username[:15]} (ad sold out, {vol:,.0f} USDT)", file=sys.stderr)
-            
-            trades.append({
-                'type': aggressor_action,
-                'source': source,
-                'user': username,
-                'price': price / peg,
-                'vol_usd': vol,
-                'timestamp': time.time(),
-                'reason': 'sold_out',
-                'confidence': 'medium' if is_suspicious else 'high'
-            })
+            if vol >= 100:  # Only log significant ones
+                print(f"   ⚪ AD GONE (not counted): {source} - {username[:15]} had {vol:,.0f} USDT (merchant offline/cancelled)", file=sys.stderr)
     
     # 2. Check for NEW ads (REQUESTS) - but filter out REPRICES
     new_ads = set(current_state.keys()) - set(prev_state.keys())
@@ -817,14 +693,11 @@ def detect_real_trades(current_ads, peg):
             elif curr_inventory > prev_inventory and diff >= 1:
                 print(f"   ➕ FUNDED: {source} - {ad['advertiser'][:15]} added {diff:,.0f} USDT (not a trade)", file=sys.stderr)
     
-    # Summary with confidence breakdown
-    high_conf = len([t for t in trades if t.get('confidence') == 'high'])
-    med_conf = len([t for t in trades if t.get('confidence') == 'medium'])
-    
-    print(f"\n   📊 DETECTION SUMMARY:", file=sys.stderr)
+    # Summary - now only partial fills counted
+    print(f"\n   📊 DETECTION SUMMARY (v42.3 - PARTIAL FILLS ONLY):", file=sys.stderr)
     print(f"   > Requests posted: {len(requests)}", file=sys.stderr)
     print(f"   > Trades detected: {len(trades)} ({len([t for t in trades if t['type']=='buy'])} buys 🟢, {len([t for t in trades if t['type']=='sell'])} sells 🔴)", file=sys.stderr)
-    print(f"   > Confidence: {high_conf} high, {med_conf} medium (possible cancels)", file=sys.stderr)
+    print(f"   > Method: PARTIAL FILLS ONLY (no disappeared ads - too unreliable)", file=sys.stderr)
     print(f"   > Checked: Binance={sources_checked.get('BINANCE', 0)}, MEXC={sources_checked.get('MEXC', 0)}, OKX={sources_checked.get('OKX', 0)}, Bybit={sources_checked.get('BYBIT', 0)}", file=sys.stderr)
     
     return trades + requests
@@ -1374,7 +1247,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market v42.2 - Improved Accuracy</title>
+        <title>ETB Market v42.3 - Accurate Volume Tracking</title>
         <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
         <style>
             * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -2303,7 +2176,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v42.2 Improved Accuracy! • Reprice Detection • Confidence Levels • ~95% Accurate! 💰✅
+                v42.3 Accurate! • Partial Fills Only • No More $250M False Volume! 💰✅
             </footer>
         </div>
         
@@ -2883,12 +2756,12 @@ def generate_feed_html(trades, peg):
 
 # --- MAIN ---
 def main():
-    print("🔍 Running v42.2 (Improved Accuracy!)...", file=sys.stderr)
+    print("🔍 Running v42.3 (ACCURATE Volume Tracking!)...", file=sys.stderr)
     print("   📊 Strategy: 8 snapshots × 15s intervals = 105s coverage (58%!)", file=sys.stderr)
-    print("   🎯 FIXED: Cancelled ad detection (reprice vs trade)", file=sys.stderr)
-    print("   🎯 FIXED: Repricing no longer double-counts", file=sys.stderr)
-    print("   🎯 NEW: Confidence levels (high/medium)", file=sys.stderr)
-    print("   📈 ACCURACY: ~95% (up from ~85%)", file=sys.stderr)
+    print("   🎯 FIXED: Only counts PARTIAL FILLS (inventory changes)", file=sys.stderr)
+    print("   🚫 DISABLED: Disappeared ads (was causing $250M false volume!)", file=sys.stderr)
+    print("   🌐 Binance: Direct API (rolled back from RapidAPI)", file=sys.stderr)
+    print("   📈 ACCURACY: Now realistic!", file=sys.stderr)
     print("   💰 COST: Only $50/month!", file=sys.stderr)
     
     # Configuration - MAXIMUM snapshots within GitHub Actions time budget
