@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v42.3 (ACCURATE Volume Tracking!)
-- FIXED: Volume tracking now ONLY counts partial fills (inventory changes)
-- DISABLED: Disappeared ads counting (was causing $250M+ false volume!)
-- ROLLBACK: Binance back to direct API (more reliable)
-- KEEP: MEXC via RapidAPI
-- ACCURACY: Now realistic (was showing $250M, should be ~$100K-$1M/day)
+🇪🇹 ETB Financial Terminal v42.4 (Improved Volume Engine!)
+- FIX 1: Binance uses RapidAPI with correct endpoint (binance/p2p/search)
+- FIX 2: No outlier filtering for inventory tracking (all ads visible to volume engine)
+- FIX 3: Requests now show in feed (buy/sell/request types)
+- FIX 4: Safer deduplication includes vol_usd (no more merging separate fills)
+- KEEP: Only partial fills counted (no disappeared ads)
 - COST: Only $50/month for OKX!
 """
 
@@ -84,97 +84,107 @@ def fetch_usdt_peg():
     except:
         return 1.00
 
-def fetch_binance_direct(side="SELL"):
+def fetch_binance_rapidapi(side="SELL"):
     """
-    Fetch Binance P2P ads using DIRECT FREE API WITH PAGINATION!
-    Rollback from RapidAPI - more reliable for ETB market
+    Fetch Binance P2P ads using RapidAPI with correct endpoint!
+    Based on working test code - uses binance/p2p/search endpoint
     """
-    url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+    url = "https://binance-p2p-api.p.rapidapi.com/binance/p2p/search"
+    
+    headers = {
+        "X-RapidAPI-Key": "28e60e8b83msh2f62e830aa1f09ap18bad1jsna2ade74a847c",
+        "X-RapidAPI-Host": "binance-p2p-api.p.rapidapi.com",
+        "Content-Type": "application/json"
+    }
     
     all_ads = []
     seen_ids = set()
     page = 1
-    max_pages = 20  # Scan up to 20 pages
+    max_pages = 20
     
     while page <= max_pages:
         payload = {
             "asset": "USDT",
             "fiat": "ETB",
-            "merchantCheck": False,
+            "tradeType": side,
             "page": page,
             "rows": 20,
-            "tradeType": side
+            "payTypes": []
         }
         
         try:
-            r = requests.post(url, headers=HEADERS, json=payload, timeout=10)
+            r = requests.post(url, headers=headers, json=payload, timeout=15)
+            
+            if r.status_code == 429:
+                print(f"   ⚠️ Rate limit hit, waiting 5s...", file=sys.stderr)
+                time.sleep(5)
+                continue
+            
             data = r.json()
             
-            if data.get("code") == "000000" and data.get("data"):
-                items = data['data']
+            # Check for success code
+            if data.get("code") == "000000":
+                items = data.get('data', [])
                 
                 if not items:
-                    break
+                    break  # End of list
                 
-                new_ads_count = 0
+                new_count = 0
                 for item in items:
                     try:
-                        adv = item['adv']
-                        advertiser = item['advertiser']
+                        advertiser = item.get("advertiser", {})
+                        adv = item.get("adv", {})
+                        ad_no = adv.get("advNo", "")
                         
-                        price = float(adv['price'])
-                        vol = float(adv['surplusAmount'])
-                        name = advertiser['nickName']
-                        ad_no = adv['advNo']
-                        
-                        if ad_no not in seen_ids:
+                        if ad_no and ad_no not in seen_ids:
                             seen_ids.add(ad_no)
                             all_ads.append({
                                 'source': 'BINANCE',
                                 'ad_type': side,
-                                'advertiser': name,
-                                'price': price,
-                                'available': vol,
+                                'advertiser': advertiser.get("nickName", "Unknown"),
+                                'price': float(adv.get("price", 0)),
+                                'available': float(adv.get("surplusAmount", 0)),
                             })
-                            new_ads_count += 1
+                            new_count += 1
                     except:
                         continue
                 
-                if new_ads_count == 0:
+                if new_count == 0:
                     break
-                
+                    
                 page += 1
-                time.sleep(0.3)
+                time.sleep(1.5)  # Rate limiting between pages
             else:
+                print(f"   ❌ Binance API error: {data}", file=sys.stderr)
                 break
+                
         except Exception as e:
+            print(f"   ❌ Binance connection error: {e}", file=sys.stderr)
             break
     
-    print(f"   BINANCE {side} (direct): {len(all_ads)} ads from {page-1} pages", file=sys.stderr)
+    print(f"   BINANCE {side} (RapidAPI): {len(all_ads)} ads from {page-1} pages", file=sys.stderr)
     return all_ads
 
 def fetch_binance_both_sides():
-    """Fetch BOTH buy and sell ads from Binance using DIRECT API"""
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        f_sell = ex.submit(lambda: fetch_binance_direct("SELL"))
-        f_buy = ex.submit(lambda: fetch_binance_direct("BUY"))
-        
-        sell_ads = f_sell.result() or []
-        buy_ads = f_buy.result() or []
-        
-        # Deduplicate
-        all_ads = sell_ads + buy_ads
-        seen = set()
-        deduped = []
-        
-        for ad in all_ads:
-            key = f"{ad['advertiser']}_{ad['price']}_{ad.get('ad_type', 'SELL')}"
-            if key not in seen:
-                seen.add(key)
-                deduped.append(ad)
-        
-        print(f"   BINANCE Total: {len(deduped)} ads ({len(sell_ads)} sells, {len(buy_ads)} buys)", file=sys.stderr)
-        return deduped
+    """Fetch BOTH buy and sell ads from Binance using RapidAPI"""
+    # Note: Sequential to respect rate limits
+    sell_ads = fetch_binance_rapidapi("SELL")
+    time.sleep(2)  # Pause between sides
+    buy_ads = fetch_binance_rapidapi("BUY")
+    
+    # Deduplicate
+    all_ads = sell_ads + buy_ads
+    seen = set()
+    deduped = []
+    
+    for ad in all_ads:
+        key = f"{ad['advertiser']}_{ad['price']}_{ad.get('ad_type', 'SELL')}"
+        if key not in seen:
+            seen.add(key)
+            deduped.append(ad)
+    
+    print(f"   BINANCE Total: {len(deduped)} ads ({len(sell_ads)} sells, {len(buy_ads)} buys)", file=sys.stderr)
+    return deduped
 
 def fetch_p2p_army_exchange(market, side="SELL"):
     """Universal fetcher with ROBUST volume and username detection + ad_type tracking"""
@@ -455,9 +465,13 @@ def fetch_exchange_both_sides(exchange_name):
 
 # --- MARKET SNAPSHOT ---
 def capture_market_snapshot():
-    """Capture market snapshot: Binance (direct), MEXC (RapidAPI), OKX (p2p.army), Bybit (direct)"""
+    """
+    Capture market snapshot: Binance (RapidAPI), MEXC (RapidAPI), OKX (p2p.army), Bybit (direct)
+    IMPORTANT: This snapshot is used for INVENTORY TRACKING.
+    → Do NOT outlier-filter here; we want to see ALL ads for volume detection.
+    """
     with ThreadPoolExecutor(max_workers=10) as ex:
-        f_binance = ex.submit(fetch_binance_both_sides)  # Direct API (FREE!)
+        f_binance = ex.submit(fetch_binance_both_sides)  # RapidAPI
         f_mexc = ex.submit(fetch_mexc_both_sides)  # RapidAPI  
         f_okx = ex.submit(fetch_exchange_both_sides, "okx")  # Only OKX uses p2p.army now
         f_bybit = ex.submit(fetch_bybit_both_sides)  # Direct API (FREE!)
@@ -469,18 +483,11 @@ def capture_market_snapshot():
         bybit_data = f_bybit.result() or []
         peg = f_peg.result() or 1.0
         
-        total_before = len(binance_data) + len(mexc_data) + len(okx_data) + len(bybit_data)
-        print(f"   📊 Collected {total_before} ads total (Binance direct, MEXC RapidAPI, OKX p2p.army, Bybit direct)", file=sys.stderr)
+        total = len(binance_data) + len(mexc_data) + len(okx_data) + len(bybit_data)
+        print(f"   📊 Collected {total} ads total (Binance RapidAPI, MEXC RapidAPI, OKX p2p.army, Bybit direct)", file=sys.stderr)
         
-        # Remove lowest 10% outliers
-        binance_data = remove_outliers(binance_data, peg)
-        mexc_data = remove_outliers(mexc_data, peg)
-        okx_data = remove_outliers(okx_data, peg)
-        bybit_data = remove_outliers(bybit_data, peg)
-        
-        total_after = len(binance_data) + len(mexc_data) + len(okx_data) + len(bybit_data)
-        print(f"   ✂️ After filtering: {total_after} ads (removed {total_before - total_after} outliers)", file=sys.stderr)
-        
+        # NO OUTLIER FILTERING HERE → volume engine sees everything
+        # Outlier filtering is only applied in main() for display/stats
         return binance_data + mexc_data + okx_data + bybit_data
 
 def remove_outliers(ads, peg):
@@ -521,7 +528,7 @@ def save_market_state(current_ads):
 
 def detect_real_trades(current_ads, peg):
     """
-    CONSERVATIVE TRADE DETECTION v42.3!
+    CONSERVATIVE TRADE DETECTION v42.4!
     
     ONLY counts PARTIAL FILLS (inventory changes where ad still exists)
     
@@ -694,7 +701,7 @@ def detect_real_trades(current_ads, peg):
                 print(f"   ➕ FUNDED: {source} - {ad['advertiser'][:15]} added {diff:,.0f} USDT (not a trade)", file=sys.stderr)
     
     # Summary - now only partial fills counted
-    print(f"\n   📊 DETECTION SUMMARY (v42.3 - PARTIAL FILLS ONLY):", file=sys.stderr)
+    print(f"\n   📊 DETECTION SUMMARY (v42.4 - PARTIAL FILLS ONLY):", file=sys.stderr)
     print(f"   > Requests posted: {len(requests)}", file=sys.stderr)
     print(f"   > Trades detected: {len(trades)} ({len([t for t in trades if t['type']=='buy'])} buys 🟢, {len([t for t in trades if t['type']=='sell'])} sells 🔴)", file=sys.stderr)
     print(f"   > Method: PARTIAL FILLS ONLY (no disappeared ads - too unreliable)", file=sys.stderr)
@@ -703,6 +710,7 @@ def detect_real_trades(current_ads, peg):
     return trades + requests
 
 def load_recent_trades():
+    """Load recent trades AND requests from file"""
     if not os.path.exists(TRADES_FILE):
         return []
     
@@ -712,45 +720,48 @@ def load_recent_trades():
         
         cutoff = time.time() - (TRADE_RETENTION_MINUTES * 60)
         
-        # Filter trades: must have timestamp, type, and be recent
+        # Keep buys, sells AND requests for the feed
         valid_trades = []
         for t in all_trades:
-            if t.get("timestamp", 0) > cutoff and t.get("type") in ['buy', 'sell']:
+            if t.get("timestamp", 0) > cutoff and t.get("type") in ['buy', 'sell', 'request']:
                 valid_trades.append(t)
         
         # Count by type for debugging
         buys = len([t for t in valid_trades if t['type'] == 'buy'])
         sells = len([t for t in valid_trades if t['type'] == 'sell'])
+        requests = len([t for t in valid_trades if t['type'] == 'request'])
         
-        print(f"   > Loaded {len(valid_trades)} trades from last 24h ({buys} buys, {sells} sells)", file=sys.stderr)
+        print(f"   > Loaded {len(valid_trades)} events from last 24h ({buys} buys, {sells} sells, {requests} requests)", file=sys.stderr)
         return valid_trades
     except Exception as e:
         print(f"   > Error loading trades: {e}", file=sys.stderr)
         return []
 
 def save_trades(new_trades):
-    """Save trades with DEDUPLICATION to prevent duplicates like Bybit issue"""
+    """Save trades with SAFE DEDUPLICATION - includes volume to avoid merging separate fills"""
     recent = load_recent_trades()
     
     # Create set of existing trade keys for deduplication
+    # Include vol_usd to avoid merging two different partial fills in same minute
     existing_keys = set()
     for t in recent:
-        # Key: source + user + price + rounded timestamp (within 60 seconds)
         ts_bucket = int(t.get("timestamp", 0) / 60)  # Group by minute
-        key = f"{t.get('source', '')}_{t.get('user', '')}_{t.get('price', 0):.2f}_{ts_bucket}_{t.get('type', '')}"
+        vol_bucket = int(round(t.get("vol_usd", 0) or 0))  # Include volume!
+        key = f"{t.get('source', '')}_{t.get('user', '')}_{t.get('price', 0):.2f}_{ts_bucket}_{t.get('type', '')}_{vol_bucket}"
         existing_keys.add(key)
     
     # Filter out duplicate new trades
     unique_new = []
     for t in new_trades:
         ts_bucket = int(t.get("timestamp", 0) / 60)
-        key = f"{t.get('source', '')}_{t.get('user', '')}_{t.get('price', 0):.2f}_{ts_bucket}_{t.get('type', '')}"
+        vol_bucket = int(round(t.get("vol_usd", 0) or 0))  # Include volume!
+        key = f"{t.get('source', '')}_{t.get('user', '')}_{t.get('price', 0):.2f}_{ts_bucket}_{t.get('type', '')}_{vol_bucket}"
         if key not in existing_keys:
             existing_keys.add(key)
             unique_new.append(t)
     
     if len(new_trades) != len(unique_new):
-        print(f"   > Deduplication: {len(new_trades)} → {len(unique_new)} trades (removed {len(new_trades) - len(unique_new)} duplicates)", file=sys.stderr)
+        print(f"   > Deduplication: {len(new_trades)} → {len(unique_new)} events (removed {len(new_trades) - len(unique_new)} duplicates)", file=sys.stderr)
     
     all_trades = recent + unique_new
     
@@ -760,7 +771,7 @@ def save_trades(new_trades):
     with open(TRADES_FILE, "w") as f:
         json.dump(filtered, f)
     
-    print(f"   > Saved {len(filtered)} trades to history (last 24h)", file=sys.stderr)
+    print(f"   > Saved {len(filtered)} events to history (last 24h)", file=sys.stderr)
 
 
 # --- ANALYTICS ---
@@ -1247,7 +1258,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market v42.3 - Accurate Volume Tracking</title>
+        <title>ETB Market v42.4 - Improved Volume Engine</title>
         <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
         <style>
             * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -2176,7 +2187,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v42.3 Accurate! • Partial Fills Only • No More $250M False Volume! 💰✅
+                v42.4 Improved! • RapidAPI Binance • Full Inventory Tracking • Requests in Feed! 💰✅
             </footer>
         </div>
         
@@ -2756,12 +2767,12 @@ def generate_feed_html(trades, peg):
 
 # --- MAIN ---
 def main():
-    print("🔍 Running v42.3 (ACCURATE Volume Tracking!)...", file=sys.stderr)
+    print("🔍 Running v42.4 (Improved Volume Engine!)...", file=sys.stderr)
     print("   📊 Strategy: 8 snapshots × 15s intervals = 105s coverage (58%!)", file=sys.stderr)
-    print("   🎯 FIXED: Only counts PARTIAL FILLS (inventory changes)", file=sys.stderr)
-    print("   🚫 DISABLED: Disappeared ads (was causing $250M false volume!)", file=sys.stderr)
-    print("   🌐 Binance: Direct API (rolled back from RapidAPI)", file=sys.stderr)
-    print("   📈 ACCURACY: Now realistic!", file=sys.stderr)
+    print("   🌐 Binance: RapidAPI with correct endpoint (binance/p2p/search)", file=sys.stderr)
+    print("   📈 No outlier filter for inventory (all ads tracked)", file=sys.stderr)
+    print("   ✅ Requests now visible in feed", file=sys.stderr)
+    print("   🔒 Safer deduplication (vol_usd included)", file=sys.stderr)
     print("   💰 COST: Only $50/month!", file=sys.stderr)
     
     # Configuration - MAXIMUM snapshots within GitHub Actions time budget
