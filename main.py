@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
-🇪🇹 ETB Financial Terminal v42.4 (Improved Volume Engine!)
-- FIX 1: Binance uses RapidAPI with correct endpoint (binance/p2p/search)
-- FIX 2: No outlier filtering for inventory tracking (all ads visible to volume engine)
-- FIX 3: Requests now show in feed (buy/sell/request types)
-- FIX 4: Safer deduplication includes vol_usd (no more merging separate fills)
-- KEEP: Only partial fills counted (no disappeared ads)
+🇪🇹 ETB Financial Terminal v42.7 (Realistic Volume!)
+- FIX: MAX_SINGLE_TRADE = $50,000 limit (no more $1.9M fake trades!)
+- FIX: Binance RapidAPI uses /search/sell and /search/buy URLs
+- KEEP: All v42.5 improvements (env vars, stats labels, CSS)
 - COST: Only $50/month for OKX!
 """
 
@@ -31,7 +29,10 @@ except ImportError:
     print("⚠️ Matplotlib not found.", file=sys.stderr)
 
 # --- CONFIGURATION ---
-P2P_ARMY_KEY = "YJU5RCZ2-P6VTVNNA"
+# API Keys from environment variables (secure!) with fallbacks for local testing
+P2P_ARMY_KEY = os.environ.get("P2P_ARMY_KEY", "YJU5RCZ2-P6VTVNNA")
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "28e60e8b83msh2f62e830aa1f09ap18bad1jsna2ade74a847c")
+
 HISTORY_FILE = "etb_history.csv"
 SNAPSHOT_FILE = "market_state.json"
 TRADES_FILE = "recent_trades.json"
@@ -65,6 +66,11 @@ TRADE_RETENTION_MINUTES = 1440  # 24 hours
 MAX_ADS_PER_SOURCE = 200
 HISTORY_POINTS = 288
 
+# SANITY CHECK: Maximum single trade size (in USDT)
+# No legitimate P2P trade is $50,000+ in one transaction
+# This prevents bad API data from creating fake $1.9M "trades"
+MAX_SINGLE_TRADE = 50000
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Content-Type": "application/json",
@@ -86,13 +92,14 @@ def fetch_usdt_peg():
 
 def fetch_binance_rapidapi(side="SELL"):
     """
-    Fetch Binance P2P ads using RapidAPI with correct endpoint!
-    Based on working test code - uses binance/p2p/search endpoint
+    Fetch Binance P2P ads using RapidAPI with CORRECT endpoint!
+    URL structure: /binance/p2p/search/sell or /binance/p2p/search/buy
     """
-    url = "https://binance-p2p-api.p.rapidapi.com/binance/p2p/search"
+    # CORRECT: side is part of URL path, not payload!
+    url = f"https://binance-p2p-api.p.rapidapi.com/binance/p2p/search/{side.lower()}"
     
     headers = {
-        "X-RapidAPI-Key": "28e60e8b83msh2f62e830aa1f09ap18bad1jsna2ade74a847c",
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
         "X-RapidAPI-Host": "binance-p2p-api.p.rapidapi.com",
         "Content-Type": "application/json"
     }
@@ -106,10 +113,10 @@ def fetch_binance_rapidapi(side="SELL"):
         payload = {
             "asset": "USDT",
             "fiat": "ETB",
-            "tradeType": side,
             "page": page,
             "rows": 20,
-            "payTypes": []
+            "payTypes": [],
+            "countries": []
         }
         
         try:
@@ -140,7 +147,7 @@ def fetch_binance_rapidapi(side="SELL"):
                             seen_ids.add(ad_no)
                             all_ads.append({
                                 'source': 'BINANCE',
-                                'ad_type': side,
+                                'ad_type': side.upper(),
                                 'advertiser': advertiser.get("nickName", "Unknown"),
                                 'price': float(adv.get("price", 0)),
                                 'available': float(adv.get("surplusAmount", 0)),
@@ -314,7 +321,7 @@ def fetch_mexc_rapidapi(side="SELL"):
     
     try:
         headers = {
-            "X-RapidAPI-Key": "28e60e8b83msh2f62e830aa1f09ap18bad1jsna2ade74a847c",
+            "X-RapidAPI-Key": RAPIDAPI_KEY,
             "X-RapidAPI-Host": "mexc-p2p-api.p.rapidapi.com",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
         }
@@ -528,13 +535,13 @@ def save_market_state(current_ads):
 
 def detect_real_trades(current_ads, peg):
     """
-    CONSERVATIVE TRADE DETECTION v42.4!
+    CONSERVATIVE TRADE DETECTION v42.7!
     
     ONLY counts PARTIAL FILLS (inventory changes where ad still exists)
     
-    DISABLED: Disappeared ads detection (was causing $250M+ false volume!)
-    - When merchants go offline/cancel ads, we can't tell if it was a trade
-    - Better to undercount than massively overcount
+    SANITY CHECKS:
+    - MAX_SINGLE_TRADE = $50,000 limit (no $1.9M fake trades!)
+    - Disappeared ads NOT counted (was causing $250M+ false volume!)
     
     Logic:
     - GREEN = Aggressive buying (demand/capital flight)
@@ -675,6 +682,12 @@ def detect_real_trades(current_ads, peg):
             diff = abs(curr_inventory - prev_inventory)
             
             if curr_inventory < prev_inventory and diff >= 1:
+                # SANITY CHECK: Skip unrealistically large "trades"
+                # No legitimate P2P trade is $50K+ in one transaction
+                if diff > MAX_SINGLE_TRADE:
+                    print(f"   ⚠️ SKIPPED (too large): {source} - {ad['advertiser'][:15]} claimed {diff:,.0f} USDT (max={MAX_SINGLE_TRADE:,})", file=sys.stderr)
+                    continue
+                
                 # Inventory dropped - PARTIAL FILL (most reliable!)
                 if ad_type.upper() in ['SELL', 'SELL_AD']:
                     aggressor_action = 'buy'
@@ -701,7 +714,7 @@ def detect_real_trades(current_ads, peg):
                 print(f"   ➕ FUNDED: {source} - {ad['advertiser'][:15]} added {diff:,.0f} USDT (not a trade)", file=sys.stderr)
     
     # Summary - now only partial fills counted
-    print(f"\n   📊 DETECTION SUMMARY (v42.4 - PARTIAL FILLS ONLY):", file=sys.stderr)
+    print(f"\n   📊 DETECTION SUMMARY (v42.7 - PARTIAL FILLS ONLY):", file=sys.stderr)
     print(f"   > Requests posted: {len(requests)}", file=sys.stderr)
     print(f"   > Trades detected: {len(trades)} ({len([t for t in trades if t['type']=='buy'])} buys 🟢, {len([t for t in trades if t['type']=='sell'])} sells 🔴)", file=sys.stderr)
     print(f"   > Method: PARTIAL FILLS ONLY (no disappeared ads - too unreliable)", file=sys.stderr)
@@ -957,7 +970,9 @@ def generate_charts(stats, official_rate):
 
 # --- STATISTICS CALCULATOR ---
 def calculate_trade_stats(trades):
-    """Calculate 1H/Today/Week/Overall trade statistics"""
+    """Calculate 1H/Today/24h Window/Overall trade statistics
+    Note: Since we only retain 24h of data, 'week' is actually same as '24h window'
+    """
     import datetime
     
     now = datetime.datetime.now()
@@ -1051,8 +1066,8 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     prem = ((stats["median"] - official) / official) * 100 if official else 0
     cache_buster = int(time.time())
     
-    # Price change calculation
-    dates, medians, _, _, _ = load_history()
+    # Price change calculation - load history ONCE for consistency
+    dates, medians, q1s, q3s, offs = load_history()
     price_change = 0
     price_change_pct = 0
     if len(medians) > 0:
@@ -1123,11 +1138,11 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
     
     chart_data_json = json.dumps(chart_data)
     
-    # Generate history data for trend chart
+    # Generate history data for trend chart (using already-loaded data for consistency)
     history_data = {
         'dates': [d.isoformat() if hasattr(d, 'isoformat') else str(d) for d in dates] if dates else [],
         'medians': medians if medians else [],
-        'officials': [o if o else 0 for o in load_history()[4]] if load_history()[4] else []
+        'officials': [o if o else 0 for o in offs] if offs else []
     }
     history_data_json = json.dumps(history_data)
     
@@ -1258,7 +1273,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
         <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="refresh" content="300">
-        <title>ETB Market v42.4 - Improved Volume Engine</title>
+        <title>ETB Market v42.7 - Realistic Volume</title>
         <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
         <style>
             * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -2063,7 +2078,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                             <div class="stat-volume">{today_buy_volume:,.0f} USDT</div>
                         </div>
                         <div class="stat-card buy-card">
-                            <div class="stat-label">This Week</div>
+                            <div class="stat-label">24h Window</div>
                             <div class="stat-value green">{week_buys}</div>
                             <div class="stat-volume">{week_buy_volume:,.0f} USDT</div>
                         </div>
@@ -2090,7 +2105,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                             <div class="stat-volume">{today_sell_volume:,.0f} USDT</div>
                         </div>
                         <div class="stat-card sell-card">
-                            <div class="stat-label">This Week</div>
+                            <div class="stat-label">24h Window</div>
                             <div class="stat-value red">{week_sells}</div>
                             <div class="stat-volume">{week_sell_volume:,.0f} USDT</div>
                         </div>
@@ -2137,7 +2152,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                 <div style="font-size:20px;font-weight:700;margin-bottom:20px;color:var(--text);text-align:center;">📊 Understanding Market Colors & Terms</div>
                 
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
-                    <div style="background:linear-gradient(135deg,var(--green)11,var(--green)05);padding:20px;border-radius:12px;border:2px solid var(--green)44;">
+                    <div style="background:linear-gradient(135deg,rgba(0,200,5,0.15),rgba(0,200,5,0.05));padding:20px;border-radius:12px;border:2px solid rgba(0,200,5,0.4);">
                         <div style="font-weight:700;color:var(--green);font-size:18px;margin-bottom:10px;">🟢 GREEN = BUYING (Demand)</div>
                         <div style="font-size:14px;color:var(--text);line-height:1.6;margin-bottom:10px;">
                             When someone <b>BUYS USDT</b> or posts a <b>BUY REQUEST</b>.
@@ -2147,7 +2162,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                         </div>
                     </div>
                     
-                    <div style="background:linear-gradient(135deg,var(--red)11,var(--red)05);padding:20px;border-radius:12px;border:2px solid var(--red)44;">
+                    <div style="background:linear-gradient(135deg,rgba(255,59,48,0.15),rgba(255,59,48,0.05));padding:20px;border-radius:12px;border:2px solid rgba(255,59,48,0.4);">
                         <div style="font-weight:700;color:var(--red);font-size:18px;margin-bottom:10px;">🔴 RED = SELLING (Supply)</div>
                         <div style="font-size:14px;color:var(--text);line-height:1.6;margin-bottom:10px;">
                             When someone <b>SELLS USDT</b> or posts a <b>SELL REQUEST</b>.
@@ -2187,7 +2202,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v42.4 Improved! • RapidAPI Binance • Full Inventory Tracking • Requests in Feed! 💰✅
+                v42.7 Realistic! • Max $50K/trade limit • No More $1.9M Fake Trades! 💰✅
             </footer>
         </div>
         
@@ -2767,12 +2782,10 @@ def generate_feed_html(trades, peg):
 
 # --- MAIN ---
 def main():
-    print("🔍 Running v42.4 (Improved Volume Engine!)...", file=sys.stderr)
-    print("   📊 Strategy: 8 snapshots × 15s intervals = 105s coverage (58%!)", file=sys.stderr)
-    print("   🌐 Binance: RapidAPI with correct endpoint (binance/p2p/search)", file=sys.stderr)
-    print("   📈 No outlier filter for inventory (all ads tracked)", file=sys.stderr)
-    print("   ✅ Requests now visible in feed", file=sys.stderr)
-    print("   🔒 Safer deduplication (vol_usd included)", file=sys.stderr)
+    print("🔍 Running v42.7 (Realistic Volume!)...", file=sys.stderr)
+    print(f"   🚫 MAX_SINGLE_TRADE = ${MAX_SINGLE_TRADE:,} (no more $1.9M fake trades!)", file=sys.stderr)
+    print("   🌐 Binance: RapidAPI /search/sell and /search/buy", file=sys.stderr)
+    print("   🔐 API keys from environment variables", file=sys.stderr)
     print("   💰 COST: Only $50/month!", file=sys.stderr)
     
     # Configuration - MAXIMUM snapshots within GitHub Actions time budget
