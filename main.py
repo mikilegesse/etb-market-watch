@@ -2,6 +2,7 @@
 """
 🇪🇹 ETB Financial Terminal v42.7 (Realistic Volume!)
 - FIX: MAX_SINGLE_TRADE = $50,000 limit (no more $1.9M fake trades!)
+- FIX: Market Activity shows ALL 24h trades (no more 50 item limit!)
 - FIX: Binance RapidAPI uses /search/sell and /search/buy URLs
 - KEEP: All v42.5 improvements (env vars, stats labels, CSS)
 - COST: Only $50/month for OKX!
@@ -1611,7 +1612,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             }}
             
             .feed-container {{
-                max-height: 600px;
+                max-height: 800px;  /* Increased for full 24h activity */
                 overflow-y: auto;
                 padding: 10px;
             }}
@@ -2202,7 +2203,7 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
             
             <footer>
                 Official Rate: {official:.2f} ETB | Last Update: {timestamp} UTC<br>
-                v42.7 Realistic! • Max $50K/trade limit • No More $1.9M Fake Trades! 💰✅
+                v42.7 Realistic! • Max $50K/trade • Full 24h Activity Feed! 💰✅
             </footer>
         </div>
         
@@ -2584,8 +2585,8 @@ def update_website_html(stats, official, timestamp, current_ads, grouped_ads, pe
                     return;
                 }}
                 
-                // Sort by timestamp DESC (newest first), then take top 50
-                const sorted = trades.sort((a, b) => b.timestamp - a.timestamp).slice(0, 50);
+                // Sort by timestamp DESC (newest first) - show ALL 24h activity
+                const sorted = trades.sort((a, b) => b.timestamp - a.timestamp);
                 
                 const html = sorted.map(trade => {{
                     const date = new Date(trade.timestamp * 1000);
@@ -2671,7 +2672,7 @@ def generate_feed_html(trades, peg):
     sell_count = 0
     request_count = 0
     
-    for trade in sorted(trades, key=lambda x: x.get('timestamp', 0), reverse=True)[:50]:
+    for trade in sorted(trades, key=lambda x: x.get('timestamp', 0), reverse=True):  # Show ALL 24h activity
         trade_type = trade.get('type')
         
         # Handle REQUESTS (new ads posted)
